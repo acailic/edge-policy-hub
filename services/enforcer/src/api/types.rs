@@ -55,13 +55,3 @@ pub struct StreamFilter {
     #[serde(default)]
     pub decision: Option<String>,
 }
-
-/// Filters applied to decision stream events. Events are sent only if they match all specified filters.
-/// tenant_id filters by exact tenant ID, decision filters by "allow" or "deny" (case-insensitive).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StreamFilter {
-    #[serde(default)]
-    pub tenant_id: Option<String>,
-    #[serde(default)]
-    pub decision: Option<String>,
-}

@@ -365,23 +365,9 @@ async fn map_api_error(response: reqwest::Response, service: &str) -> CommandErr
 fn normalize_decision(decision: &str) -> String {
     let normalized = decision.to_ascii_lowercase();
     match normalized.as_str() {
-        "allow"
-        | "allowed"
-        | "allows"
-        | "approve"
-        | "approved"
-        | "permit"
-        | "permitted"
-        | "grant"
-        | "granted" => "allow".to_string(),
-        "deny"
-        | "denied"
-        | "denies"
-        | "reject"
-        | "rejected"
-        | "block"
-        | "blocked"
-        | "forbid"
+        "allow" | "allowed" | "allows" | "approve" | "approved" | "permit" | "permitted"
+        | "grant" | "granted" => "allow".to_string(),
+        "deny" | "denied" | "denies" | "reject" | "rejected" | "block" | "blocked" | "forbid"
         | "forbidden" => "deny".to_string(),
         _ => normalized,
     }
@@ -423,4 +409,28 @@ fn normalize_host_for_client(host: &str) -> String {
     }
 
     trimmed.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_decision;
+
+    #[test]
+    fn normalizes_allow_variants() {
+        for value in ["ALLOW", "Allowed", "approved", "Grant", "permitted"] {
+            assert_eq!(normalize_decision(value), "allow");
+        }
+    }
+
+    #[test]
+    fn normalizes_deny_variants() {
+        for value in ["DENY", "Denied", "rejected", "Blocked", "forbid"] {
+            assert_eq!(normalize_decision(value), "deny");
+        }
+    }
+
+    #[test]
+    fn preserves_unknown_values() {
+        assert_eq!(normalize_decision("pending"), "pending");
+    }
 }
