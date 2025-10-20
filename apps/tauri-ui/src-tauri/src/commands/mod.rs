@@ -3,7 +3,8 @@ pub mod policy;
 pub mod tenant;
 
 pub use monitoring::{
-    check_quota_status, get_quota_metrics, list_all_quota_metrics, query_audit_logs,
+    check_quota_status, get_enforcer_ws_url, get_quota_metrics, list_all_quota_metrics,
+    query_audit_logs,
 };
 pub use policy::{
     activate_policy_bundle, compile_policy_dsl, deploy_policy, get_policy_bundle,

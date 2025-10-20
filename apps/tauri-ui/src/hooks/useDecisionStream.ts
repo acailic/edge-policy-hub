@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { DecisionEvent } from "../types/monitoring";
 
@@ -9,7 +11,6 @@ export type DecisionStreamStatus =
   | "disconnected"
   | "error";
 
-const STREAM_ENDPOINT = "ws://127.0.0.1:8181/v1/stream/decisions";
 const MAX_EVENTS = 100;
 
 export function useDecisionStream(
@@ -20,6 +21,7 @@ export function useDecisionStream(
   const [decisions, setDecisions] = useState<DecisionEvent[]>([]);
   const [connectionStatus, setConnectionStatus] =
     useState<DecisionStreamStatus>(enabled ? "connecting" : "disconnected");
+  const [baseEndpoint, setBaseEndpoint] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -27,16 +29,83 @@ export function useDecisionStream(
     };
   }, []);
 
-  const streamUrl = useMemo(() => {
+  const resolveStreamEndpoint = useCallback(async () => {
+    if (!enabled || didUnmount.current) {
+      return;
+    }
+
+    setConnectionStatus("connecting");
+
+    try {
+      const endpoint = await invoke<string>("get_enforcer_ws_url");
+      if (didUnmount.current) {
+        return;
+      }
+      setBaseEndpoint(endpoint);
+    } catch (error) {
+      if (didUnmount.current) {
+        return;
+      }
+      console.error("Failed to resolve decision stream endpoint", error);
+      setBaseEndpoint(null);
+      setConnectionStatus("error");
+    }
+  }, [enabled]);
+
+  useEffect(() => {
+    void resolveStreamEndpoint();
+  }, [resolveStreamEndpoint]);
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
+
+    void listen("service-config-updated", () => {
+      void resolveStreamEndpoint();
+    })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+          return;
+        }
+        unlisten = fn;
+      })
+      .catch((error) => {
+        console.warn("Failed to subscribe to service-config-updated events", error);
+      });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, [resolveStreamEndpoint]);
+
+  useEffect(() => {
     if (!enabled) {
+      setBaseEndpoint(null);
+    }
+  }, [enabled]);
+
+  const streamUrl = useMemo(() => {
+    if (!enabled || !baseEndpoint) {
       return null;
     }
-    if (tenantId && tenantId.length > 0) {
-      const params = new URLSearchParams({ tenant_id: tenantId });
-      return `${STREAM_ENDPOINT}?${params.toString()}`;
+
+    try {
+      const url = new URL(baseEndpoint);
+      if (tenantId && tenantId.length > 0) {
+        url.searchParams.set("tenant_id", tenantId);
+      } else {
+        url.searchParams.delete("tenant_id");
+      }
+      return url.toString();
+    } catch (error) {
+      console.error("Invalid decision stream endpoint", error);
+      return null;
     }
-    return STREAM_ENDPOINT;
-  }, [tenantId, enabled]);
+  }, [baseEndpoint, tenantId, enabled]);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     streamUrl,

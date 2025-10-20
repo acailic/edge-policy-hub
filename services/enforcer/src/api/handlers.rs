@@ -11,6 +11,9 @@ use tokio::sync::broadcast;
 use tracing::{error, info, instrument};
 use uuid::Uuid;
 
+const MAX_SANITIZE_DEPTH: usize = 10;
+const REDACTED_PLACEHOLDER: &str = "[REDACTED]";
+
 use crate::{
     policy::{PolicyError, PolicyManager},
     tenant::{validate_tenant_id_format, validate_tenant_match, TenantValidationError},
@@ -30,12 +33,12 @@ pub async fn query_policy(
     Json(request): Json<PolicyQueryRequest>,
 ) -> Result<Json<PolicyQueryResponse>, (StatusCode, Json<ErrorResponse>)> {
     validate_tenant_id_format(&tenant_id).map_err(|err| map_validation_error(err))?;
-    let input = request.input;
-    validate_tenant_match(&tenant_id, &input).map_err(|err| map_validation_error(err))?;
+    let raw_input = request.input;
+    validate_tenant_match(&tenant_id, &raw_input).map_err(|err| map_validation_error(err))?;
 
     let eval_start = Instant::now();
     let decision = policy_manager
-        .evaluate(&tenant_id, input.clone())
+        .evaluate(&tenant_id, raw_input.clone())
         .await
         .map_err(|err| map_policy_error(err))?;
     let eval_duration = eval_start.elapsed();
@@ -51,12 +54,14 @@ pub async fn query_policy(
         tenant_id: tenant_id.clone(),
     };
 
+    let sanitized_input = sanitize_input(raw_input, decision.redact.as_deref());
+
     let event = DecisionEvent {
         event_id: Uuid::new_v4().to_string(),
         tenant_id: tenant_id.clone(),
         timestamp: Utc::now().to_rfc3339(),
         decision: decision.clone(),
-        input,
+        input: sanitized_input,
         metrics: metrics.clone(),
     };
 
@@ -176,6 +181,152 @@ fn map_policy_error(err: PolicyError) -> (StatusCode, Json<ErrorResponse>) {
                     details: Some(json!({ "tenant_id": tenant_id, "reason": reason })),
                 }),
             )
+        }
+    }
+}
+
+fn sanitize_input(mut input: Value, redact_paths: Option<&[String]>) -> Value {
+    if let Some(paths) = redact_paths {
+        for path in paths {
+            if path.trim().is_empty() {
+                continue;
+            }
+            mask_field_by_path(&mut input, path);
+        }
+    }
+    input
+}
+
+fn mask_field_by_path(value: &mut Value, path: &str) -> bool {
+    let segments: Vec<&str> = path
+        .split('.')
+        .filter(|segment| !segment.is_empty())
+        .collect();
+    if segments.is_empty() {
+        return false;
+    }
+
+    if mask_field_recursive(value, &segments, 0) {
+        return true;
+    }
+
+    mask_field_any_depth(value, &segments, 0)
+}
+
+fn mask_field_recursive(value: &mut Value, segments: &[&str], depth: usize) -> bool {
+    if depth > MAX_SANITIZE_DEPTH || segments.is_empty() {
+        return false;
+    }
+
+    let current = segments[0];
+    let rest = &segments[1..];
+
+    match value {
+        Value::Object(map) => {
+            if rest.is_empty() {
+                if let Some(entry) = map.get_mut(current) {
+                    *entry = Value::String(REDACTED_PLACEHOLDER.into());
+                    return true;
+                }
+                false
+            } else if let Some(child) = map.get_mut(current) {
+                mask_field_recursive(child, rest, depth + 1)
+            } else {
+                false
+            }
+        }
+        Value::Array(items) => {
+            let mut updated = false;
+            for item in items.iter_mut() {
+                if mask_field_recursive(item, segments, depth + 1) {
+                    updated = true;
+                }
+            }
+            updated
+        }
+        _ => false,
+    }
+}
+
+fn mask_field_any_depth(value: &mut Value, segments: &[&str], depth: usize) -> bool {
+    if depth > MAX_SANITIZE_DEPTH {
+        return false;
+    }
+
+    match value {
+        Value::Object(map) => {
+            let mut updated = false;
+            for child in map.values_mut() {
+                if mask_field_recursive(child, segments, depth + 1)
+                    || mask_field_any_depth(child, segments, depth + 1)
+                {
+                    updated = true;
+                }
+            }
+            updated
+        }
+        Value::Array(items) => {
+            let mut updated = false;
+            for item in items.iter_mut() {
+                if mask_field_any_depth(item, segments, depth + 1) {
+                    updated = true;
+                }
+            }
+            updated
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sanitize_input_masks_direct_field() {
+        let value = json!({
+            "subject": {
+                "email": "alice@example.com",
+                "role": "admin"
+            }
+        });
+
+        let sanitized = sanitize_input(value, Some(&["subject.email".to_string()]))
+            .get("subject")
+            .cloned();
+
+        let subject = sanitized.expect("subject should exist");
+        assert_eq!(
+            subject.get("email"),
+            Some(&Value::String(REDACTED_PLACEHOLDER.to_string()))
+        );
+        assert_eq!(subject.get("role"), Some(&Value::String("admin".into())));
+    }
+
+    #[test]
+    fn sanitize_input_masks_nested_array_values() {
+        let value = json!({
+            "resources": [
+                { "id": "1", "secret": "top" },
+                { "id": "2", "secret": "classified" }
+            ]
+        });
+
+        let sanitized = sanitize_input(value, Some(&["secret".to_string()]))
+            .get("resources")
+            .cloned();
+
+        let resources = sanitized
+            .expect("resources should exist")
+            .as_array()
+            .cloned()
+            .unwrap();
+        for resource in resources {
+            assert_eq!(
+                resource.get("secret"),
+                Some(&Value::String(REDACTED_PLACEHOLDER.to_string()))
+            );
         }
     }
 }

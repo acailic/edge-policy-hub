@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{net::IpAddr, time::Duration};
 
 use chrono::{DateTime, Utc};
 use reqwest::{Client, StatusCode, Url};
@@ -43,6 +43,11 @@ pub struct QuotaStatus {
     pub limit: Option<u64>,
     pub current: Option<u64>,
     pub warning_threshold_reached: bool,
+}
+
+#[tauri::command]
+pub fn get_enforcer_ws_url() -> Result<String, String> {
+    get_enforcer_ws_url_impl().map_err(|err| err.to_string())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -349,4 +354,42 @@ async fn map_api_error(response: reqwest::Response, service: &str) -> CommandErr
             message,
         }
     }
+}
+
+fn get_enforcer_ws_url_impl() -> Result<String, CommandError> {
+    let config =
+        ServiceConfig::from_env().map_err(|err| CommandError::ValidationError(err.to_string()))?;
+    Ok(build_enforcer_ws_url(&config))
+}
+
+fn build_enforcer_ws_url(config: &ServiceConfig) -> String {
+    let normalized_host = normalize_host_for_client(&config.enforcer_host);
+    let scheme = if config.enforcer_use_tls { "wss" } else { "ws" };
+    let host = if normalized_host.contains(':') && !normalized_host.starts_with('[') {
+        format!("[{}]", normalized_host)
+    } else {
+        normalized_host
+    };
+
+    format!(
+        "{scheme}://{host}:{}/v1/stream/decisions",
+        config.enforcer_port
+    )
+}
+
+fn normalize_host_for_client(host: &str) -> String {
+    let trimmed = host.trim().trim_start_matches('[').trim_end_matches(']');
+
+    if let Ok(addr) = trimmed.parse::<IpAddr>() {
+        if addr.is_unspecified() {
+            if addr.is_ipv6() {
+                return "::1".to_string();
+            }
+            return "127.0.0.1".to_string();
+        }
+
+        return trimmed.to_string();
+    }
+
+    trimmed.to_string()
 }

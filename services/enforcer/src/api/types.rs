@@ -15,6 +15,7 @@ pub struct PolicyQueryResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PolicyDecision {
     pub allow: bool,
+    /// JSON path selectors used to redact sensitive input fields.
     #[serde(default)]
     pub redact: Option<Vec<String>>,
     #[serde(default)]
@@ -41,6 +42,7 @@ pub struct DecisionEvent {
     pub tenant_id: String,
     pub timestamp: String,
     pub decision: PolicyDecision,
+    /// Sanitized policy input with any fields listed in `decision.redact` removed or masked.
     pub input: Value,
     pub metrics: EvaluationMetrics,
 }

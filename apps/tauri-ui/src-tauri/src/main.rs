@@ -22,6 +22,7 @@ fn main() {
             edge_policy_tauri_ui::query_audit_logs,
             edge_policy_tauri_ui::get_quota_metrics,
             edge_policy_tauri_ui::list_all_quota_metrics,
+            edge_policy_tauri_ui::get_enforcer_ws_url,
             edge_policy_tauri_ui::check_quota_status
         ])
         .run(tauri::generate_context!())
