@@ -15,6 +15,7 @@ BIN_TARGET="/usr/local/bin"
 HMAC_SECRET="/etc/edge-policy-hub/hmac-secret"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESOURCE_DIR="${SCRIPT_DIR}"
+BIN_SRC_DIR="${BIN_SRC_DIR:-${SCRIPT_DIR}}"
 LOG_FILE="${LOG_DIR}/install.log"
 
 required_cmds=("systemctl" "useradd" "groupadd" "openssl" "install" "cp")
@@ -93,10 +94,12 @@ create_directories() {
 locate_binary() {
   local name="$1"
   local paths=(
-    "${RESOURCE_DIR}/${name}"
-    "${RESOURCE_DIR}/../${name}"
+    "${BIN_SRC_DIR}/${name}"
+    "${BIN_SRC_DIR}/../${name}"
     "${SCRIPT_DIR}/../${name}"
     "${SCRIPT_DIR}/${name}"
+    "${SCRIPT_DIR}/../../target/release/${name}"
+    "${SCRIPT_DIR}/../../../target/release/${name}"
   )
   for candidate in "${paths[@]}"; do
     if [[ -f "${candidate}" ]]; then

@@ -176,10 +176,17 @@ fn should_send_event(event: &DecisionEvent, filter: &StreamFilter) -> bool {
         }
     }
     if let Some(ref decision) = filter.decision {
-        let expected_allow = decision == "allow";
-        if event.decision.allow != expected_allow {
+        if !matches_decision_filter(decision, event.decision.allow) {
             return false;
         }
     }
     true
+}
+
+fn matches_decision_filter(filter: &str, allow: bool) -> bool {
+    match filter.to_ascii_lowercase().as_str() {
+        "allow" | "allowed" | "approve" | "approved" | "granted" => allow,
+        "deny" | "denied" | "reject" | "rejected" | "blocked" | "block" => !allow,
+        _ => false,
+    }
 }

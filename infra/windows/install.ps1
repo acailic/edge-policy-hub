@@ -31,7 +31,7 @@ $LogFile = Join-Path $LogsDir "install.log"
 $LauncherScript = Join-Path $BinDir "edge-policy-hub-launcher.ps1"
 $LauncherExe = Join-Path $BinDir "edge-policy-hub-launcher.exe"
 $ServiceExe = Join-Path $BinDir "EdgePolicyHubService.exe"
-$ServiceConfig = Join-Path $BinDir "edge-policy-hub-service.xml"
+$ServiceConfig = Join-Path $BinDir "EdgePolicyHubService.xml"
 $ServiceName = "EdgePolicyHub"
 $HmacSecret = Join-Path $ConfigDir "hmac-secret.txt"
 

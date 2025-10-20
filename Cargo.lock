@@ -2166,6 +2166,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-http",
  "tauri-plugin-notification",
+ "tauri-plugin-process",
  "tauri-plugin-updater",
  "thiserror 1.0.69",
  "tokio",
@@ -9276,6 +9277,16 @@ dependencies = [
  "thiserror 2.0.17",
  "time",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-process"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7461c622a5ea00eb9cd9f7a08dbd3bf79484499fd5c21aa2964677f64ca651ab"
+dependencies = [
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]

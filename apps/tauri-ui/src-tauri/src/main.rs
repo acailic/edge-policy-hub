@@ -5,6 +5,7 @@ fn main() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             edge_policy_tauri_ui::list_tenants,
             edge_policy_tauri_ui::get_tenant,

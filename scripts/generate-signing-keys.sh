@@ -27,7 +27,7 @@ generate_keys() {
   local output
   output="$(tauri signer generate -w "${KEY_PATH}")"
   echo "${output}"
-  PUBLIC_KEY="$(grep -Eo '-----BEGIN PUBLIC KEY-----.*-----END PUBLIC KEY-----' <<<"${output}" | tr -d '\n' | sed 's/-----BEGIN PUBLIC KEY-----//;s/-----END PUBLIC KEY-----//')"
+  PUBLIC_KEY="$(grep -E "^Public key:" <<<"${output}" | awk -F': ' '{print $2}')"
   if [[ -z "${PUBLIC_KEY:-}" ]]; then
     log "Warning: Unable to automatically parse public key from output."
   fi

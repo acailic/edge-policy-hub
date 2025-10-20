@@ -3,21 +3,40 @@
   "version": "0.1.0",
   "identifier": "com.edgepolicyhub.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "pnpm run dev",
+    "beforeBuildCommand": "pnpm run build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },
   "bundle": {
-    "active": false,
-    "targets": [],
+    "active": true,
+    "targets": ["deb", "rpm", "wix", "dmg"],
     "category": "Utility",
     "shortDescription": "Multi-tenant edge policy enforcement gateway",
     "longDescription": "Edge Policy Hub enforces data residency, privacy, and cost guardrails at the edge with ABAC policies and OPA/Rego enforcement.",
     "copyright": "Copyright © 2025 Edge Policy Hub Contributors",
     "licenseFile": "../../../LICENSE",
-    "externalBin": [],
-    "resources": [],
+    "externalBin": [
+      "edge-policy-enforcer",
+      "edge-policy-proxy-http",
+      "edge-policy-bridge-mqtt",
+      "edge-policy-audit-store",
+      "edge-policy-quota-tracker"
+    ],
+    "resources": [
+      "../../../infra/systemd/edge-policy-enforcer.service",
+      "../../../infra/systemd/edge-policy-proxy-http.service",
+      "../../../infra/systemd/edge-policy-bridge-mqtt.service",
+      "../../../infra/systemd/edge-policy-audit-store.service",
+      "../../../infra/systemd/edge-policy-quota-tracker.service",
+      "../../../infra/systemd/edge-policy-hub.target",
+      "../../../infra/windows/edge-policy-hub-service.xml",
+      "../../../infra/windows/edge-policy-hub-launcher.ps1",
+      "../../../infra/windows/install.ps1",
+      "../../../infra/windows/uninstall.ps1",
+      "../../../examples/tenants/",
+      "../../../examples/policies/"
+    ],
     "linux": {
       "deb": {
         "depends": ["libwebkit2gtk-4.1-0", "libssl3"]
@@ -30,12 +49,6 @@
       }
     },
     "windows": {
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine",
-        "languages": ["English"],
-        "displayLanguageSelector": false
-      },
       "wix": {
         "language": "en-US"
       }
