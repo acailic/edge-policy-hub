@@ -1,0 +1,15 @@
+target/
+**/*.rs.bk
+.DS_Store
+*.log
+*.swp
+*.swo
+.vscode/
+.idea/
+.env
+.env.local
+dist/
+node_modules/
+PROMPT.md
+PROMPT2.md
+IDEAS.md
