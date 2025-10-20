@@ -15,14 +15,18 @@ const MAX_EVENTS = 100;
 
 export function useDecisionStream(
   tenantId?: string,
-  decision?: string,
   enabled: boolean = true,
+  decisionFilter?: "allow" | "deny",
 ) {
   const didUnmount = useRef(false);
   const [decisions, setDecisions] = useState<DecisionEvent[]>([]);
   const [connectionStatus, setConnectionStatus] =
     useState<DecisionStreamStatus>(enabled ? "connecting" : "disconnected");
   const [baseEndpoint, setBaseEndpoint] = useState<string | null>(null);
+  const lastSentFilter = useRef<{ tenantId: string | null; decision: "allow" | "deny" | null }>({
+    tenantId: null,
+    decision: null,
+  });
 
   useEffect(() => {
     return () => {
@@ -86,6 +90,7 @@ export function useDecisionStream(
   useEffect(() => {
     if (!enabled) {
       setBaseEndpoint(null);
+      lastSentFilter.current = { tenantId: null, decision: null };
     }
   }, [enabled]);
 
@@ -101,8 +106,8 @@ export function useDecisionStream(
       } else {
         url.searchParams.delete("tenant_id");
       }
-      if (decision && decision.length > 0) {
-        url.searchParams.set("decision", decision);
+      if (decisionFilter) {
+        url.searchParams.set("decision", decisionFilter);
       } else {
         url.searchParams.delete("decision");
       }
@@ -111,7 +116,7 @@ export function useDecisionStream(
       console.error("Invalid decision stream endpoint", error);
       return null;
     }
-  }, [baseEndpoint, tenantId, decision, enabled]);
+  }, [baseEndpoint, tenantId, decisionFilter, enabled]);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     streamUrl,
@@ -127,6 +132,40 @@ export function useDecisionStream(
     },
     enabled,
   );
+
+  useEffect(() => {
+    if (!enabled || readyState !== ReadyState.OPEN) {
+      return;
+    }
+
+    const normalizedTenant =
+      tenantId && tenantId.length > 0 ? tenantId : null;
+    const normalizedDecision = decisionFilter ?? null;
+    const { tenantId: previousTenant, decision: previousDecision } = lastSentFilter.current;
+
+    if (
+      previousTenant === normalizedTenant &&
+      previousDecision === normalizedDecision
+    ) {
+      return;
+    }
+
+    const payload: Record<string, unknown> = {
+      type: "filter",
+      tenant_id: normalizedTenant,
+      decision: normalizedDecision,
+    };
+
+    try {
+      sendMessage(JSON.stringify(payload));
+      lastSentFilter.current = {
+        tenantId: normalizedTenant,
+        decision: normalizedDecision,
+      };
+    } catch (error) {
+      console.warn("Failed to update decision stream filter", error);
+    }
+  }, [tenantId, decisionFilter, enabled, readyState, sendMessage]);
 
   useEffect(() => {
     if (!enabled) {

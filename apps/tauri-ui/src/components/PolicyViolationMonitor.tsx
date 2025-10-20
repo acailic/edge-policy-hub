@@ -28,7 +28,7 @@ export function PolicyViolationMonitor({
   enabled = true,
   onViolation,
 }: PolicyViolationMonitorProps) {
-  const { decisions } = useDecisionStream(tenantId, enabled);
+  const { decisions } = useDecisionStream(tenantId, enabled, "deny");
   const { notifyPolicyViolation } = useNotifications();
   const notifiedEvents = useRef<Set<string>>(new Set());
   const lastNotification = useRef<number>(0);

@@ -45,9 +45,6 @@ export function DecisionStreamFeed({
   maxItems = 50,
   onNewDecision,
 }: DecisionStreamFeedProps) {
-  const { decisions, connectionStatus, isConnected } =
-    useDecisionStream(tenantId);
-
   const [paused, setPaused] = useState(false);
   const [decisionFilter, setDecisionFilter] =
     useState<DecisionFilter>("all");
@@ -56,6 +53,10 @@ export function DecisionStreamFeed({
   const [displayedDecisions, setDisplayedDecisions] = useState<
     DecisionEvent[]
   >([]);
+
+  const serverDecisionFilter = decisionFilter === "all" ? undefined : decisionFilter;
+  const { decisions, connectionStatus, isConnected } =
+    useDecisionStream(tenantId, true, serverDecisionFilter);
 
   const lastNotifiedId = useRef<string | null>(null);
 
