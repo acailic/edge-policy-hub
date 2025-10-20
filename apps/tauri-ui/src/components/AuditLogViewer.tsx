@@ -448,10 +448,10 @@ export function AuditLogViewer({
           <span>Total logs: {filteredLogs.length}</span>
           <span>
             Allow:{" "}
-            {filteredLogs.filter((log) => log.decision === "allow").length}
+            {filteredLogs.filter((log) => log.decision.toLowerCase() === "allow").length}
           </span>
           <span>
-            Deny: {filteredLogs.filter((log) => log.decision === "deny").length}
+            Deny: {filteredLogs.filter((log) => log.decision.toLowerCase() === "deny").length}
           </span>
         </div>
         <div className="audit-log-viewer__footer-actions">

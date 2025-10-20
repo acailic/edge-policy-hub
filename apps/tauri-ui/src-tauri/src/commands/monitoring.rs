@@ -154,11 +154,17 @@ async fn query_audit_logs_impl(
         return Err(map_api_error(response, "audit-store").await);
     }
 
-    let logs = response
+    let logs: Vec<AuditLogEntry> = response
         .json::<QueryLogsResponse>()
         .await
         .map_err(CommandError::from)?
-        .logs;
+        .logs
+        .into_iter()
+        .map(|mut log| {
+            log.decision = normalize_decision(&log.decision);
+            log
+        })
+        .collect();
 
     info!(
       tenant_id = %tenant_id,
@@ -356,7 +362,13 @@ async fn map_api_error(response: reqwest::Response, service: &str) -> CommandErr
     }
 }
 
-fn get_enforcer_ws_url_impl() -> Result<String, CommandError> {
+fn normalize_decision(decision: &str) -> String {
+    match decision.to_lowercase().as_str() {
+        "allow" => "allow".to_string(),
+        "deny" | "denied" => "deny".to_string(),
+        _ => decision.to_lowercase(),
+    }
+}fn get_enforcer_ws_url_impl() -> Result<String, CommandError> {
     let config =
         ServiceConfig::from_env().map_err(|err| CommandError::ValidationError(err.to_string()))?;
     Ok(build_enforcer_ws_url(&config))

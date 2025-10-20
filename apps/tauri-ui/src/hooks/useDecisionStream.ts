@@ -15,6 +15,7 @@ const MAX_EVENTS = 100;
 
 export function useDecisionStream(
   tenantId?: string,
+  decision?: string,
   enabled: boolean = true,
 ) {
   const didUnmount = useRef(false);
@@ -100,12 +101,17 @@ export function useDecisionStream(
       } else {
         url.searchParams.delete("tenant_id");
       }
+      if (decision && decision.length > 0) {
+        url.searchParams.set("decision", decision);
+      } else {
+        url.searchParams.delete("decision");
+      }
       return url.toString();
     } catch (error) {
       console.error("Invalid decision stream endpoint", error);
       return null;
     }
-  }, [baseEndpoint, tenantId, enabled]);
+  }, [baseEndpoint, tenantId, decision, enabled]);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     streamUrl,

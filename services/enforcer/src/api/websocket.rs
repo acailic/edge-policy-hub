@@ -13,12 +13,21 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::types::DecisionEvent;
+use super::types::{DecisionEvent, StreamFilter};
+
+#[derive(Deserialize)]
+struct FilterMessage {
+    r#type: String,
+    #[serde(flatten)]
+    filter: StreamFilter,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct StreamQuery {
     #[serde(default)]
     pub tenant_id: Option<String>,
+    #[serde(default)]
+    pub decision: Option<String>,
 }
 
 pub async fn ws_decision_stream(
@@ -29,27 +38,31 @@ pub async fn ws_decision_stream(
         Arc<broadcast::Sender<DecisionEvent>>,
     )>,
 ) -> impl IntoResponse {
-    let tenant_filter = query.tenant_id;
+    let initial_filter = StreamFilter {
+        tenant_id: query.tenant_id,
+        decision: query.decision,
+    };
     let event_tx = Arc::clone(&event_tx);
 
-    ws.on_upgrade(move |socket| handle_decision_stream(socket, event_tx, tenant_filter))
+    ws.on_upgrade(move |socket| handle_decision_stream(socket, event_tx, initial_filter))
 }
 
 async fn handle_decision_stream(
     socket: WebSocket,
     event_tx: Arc<broadcast::Sender<DecisionEvent>>,
-    tenant_filter: Option<String>,
+    initial_filter: StreamFilter,
 ) {
     let connection_id = Uuid::new_v4();
     info!(
         %connection_id,
-        tenant_filter = tenant_filter.as_deref().unwrap_or("*"),
+        tenant_filter = initial_filter.tenant_id.as_deref().unwrap_or("*"),
+        decision_filter = initial_filter.decision.as_deref().unwrap_or("*"),
         "decision stream connection established"
     );
 
     let (sink, mut stream) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(128);
-    let filter_state = Arc::new(RwLock::new(tenant_filter));
+    let filter_state = Arc::new(RwLock::new(initial_filter));
 
     let mut sink_task = tokio::spawn({
         let mut sink = sink;
@@ -125,23 +138,9 @@ async fn handle_decision_stream(
                         let _ = out_tx.send(Message::Pong(payload)).await;
                     }
                     Message::Text(text) => {
-                        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                            if value.get("type")
-                                == Some(&serde_json::Value::String("filter".into()))
-                            {
-                                if let Some(tenant_value) = value.get("tenant_id") {
-                                    let next_filter = tenant_value
-                                        .as_str()
-                                        .map(|tenant| tenant.trim())
-                                        .and_then(|tenant| {
-                                            if tenant.is_empty() {
-                                                None
-                                            } else {
-                                                Some(tenant.to_string())
-                                            }
-                                        });
-                                    *filter_state.write().await = next_filter;
-                                }
+                        if let Ok(msg) = serde_json::from_str::<FilterMessage>(&text) {
+                            if msg.r#type == "filter" {
+                                *filter_state.write().await = msg.filter;
                             }
                         }
                     }
@@ -170,9 +169,17 @@ async fn handle_decision_stream(
     info!(%connection_id, "decision stream connection closed");
 }
 
-fn should_send_event(event: &DecisionEvent, tenant_filter: &Option<String>) -> bool {
-    match tenant_filter {
-        Some(filter) => event.tenant_id == *filter,
-        None => true,
+fn should_send_event(event: &DecisionEvent, filter: &StreamFilter) -> bool {
+    if let Some(ref tenant) = filter.tenant_id {
+        if event.tenant_id != *tenant {
+            return false;
+        }
     }
+    if let Some(ref decision) = filter.decision {
+        let expected_allow = decision == "allow";
+        if event.decision.allow != expected_allow {
+            return false;
+        }
+    }
+    true
 }
