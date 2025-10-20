@@ -127,25 +127,19 @@ impl ProxyConfig {
             .parse()
             .context("Invalid MAX_BODY_SIZE_BYTES")?;
 
-        let enforcer_url = std::env::var("ENFORCER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8181".to_string());
+        let enforcer_url =
+            std::env::var("ENFORCER_URL").unwrap_or_else(|_| "http://127.0.0.1:8181".to_string());
 
         let enable_mtls = std::env::var("ENABLE_MTLS")
             .unwrap_or_else(|_| "false".to_string())
             .parse()
             .context("Invalid ENABLE_MTLS")?;
 
-        let tls_cert_path = std::env::var("TLS_CERT_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let tls_cert_path = std::env::var("TLS_CERT_PATH").ok().map(PathBuf::from);
 
-        let tls_key_path = std::env::var("TLS_KEY_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let tls_key_path = std::env::var("TLS_KEY_PATH").ok().map(PathBuf::from);
 
-        let tls_client_ca_path = std::env::var("TLS_CLIENT_CA_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let tls_client_ca_path = std::env::var("TLS_CLIENT_CA_PATH").ok().map(PathBuf::from);
 
         let enable_jwt = std::env::var("ENABLE_JWT")
             .unwrap_or_else(|_| "false".to_string())
@@ -154,9 +148,7 @@ impl ProxyConfig {
 
         let jwt_secret = std::env::var("JWT_SECRET").ok();
 
-        let jwt_public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH")
-            .ok()
-            .map(PathBuf::from);
+        let jwt_public_key_path = std::env::var("JWT_PUBLIC_KEY_PATH").ok().map(PathBuf::from);
 
         let jwt_issuer = std::env::var("JWT_ISSUER").ok();
 
@@ -252,9 +244,7 @@ impl ProxyConfig {
                 | JwtAlgorithm::ES256
                 | JwtAlgorithm::ES384 => {
                     if self.jwt_public_key_path.is_none() {
-                        anyhow::bail!(
-                            "JWT_PUBLIC_KEY_PATH is required for RSA/ECDSA algorithms"
-                        );
+                        anyhow::bail!("JWT_PUBLIC_KEY_PATH is required for RSA/ECDSA algorithms");
                     }
                     if let Some(ref path) = self.jwt_public_key_path {
                         if !path.exists() {
@@ -285,6 +275,23 @@ impl ProxyConfig {
             anyhow::bail!("MAX_BODY_SIZE_BYTES must be greater than 0");
         }
 
+        // Validate quota tracker configuration
+        match (
+            self.quota_tracker_url.as_ref(),
+            self.quota_tracker_token.as_ref(),
+        ) {
+            (Some(_), Some(_)) => {}
+            (Some(_), None) => {
+                anyhow::bail!(
+                    "QUOTA_TRACKER_TOKEN is required when QUOTA_TRACKER_URL is configured"
+                )
+            }
+            (None, Some(_)) => {
+                anyhow::bail!("QUOTA_TRACKER_URL must be set when QUOTA_TRACKER_TOKEN is provided")
+            }
+            (None, None) => {}
+        }
+
         Ok(())
     }
 
@@ -305,9 +312,18 @@ mod tests {
 
     #[test]
     fn test_jwt_algorithm_from_str() {
-        assert_eq!("RS256".parse::<JwtAlgorithm>().unwrap(), JwtAlgorithm::RS256);
-        assert_eq!("HS256".parse::<JwtAlgorithm>().unwrap(), JwtAlgorithm::HS256);
-        assert_eq!("ES256".parse::<JwtAlgorithm>().unwrap(), JwtAlgorithm::ES256);
+        assert_eq!(
+            "RS256".parse::<JwtAlgorithm>().unwrap(),
+            JwtAlgorithm::RS256
+        );
+        assert_eq!(
+            "HS256".parse::<JwtAlgorithm>().unwrap(),
+            JwtAlgorithm::HS256
+        );
+        assert_eq!(
+            "ES256".parse::<JwtAlgorithm>().unwrap(),
+            JwtAlgorithm::ES256
+        );
         assert!("INVALID".parse::<JwtAlgorithm>().is_err());
     }
 
@@ -352,6 +368,19 @@ mod tests {
 
         // Invalid: mTLS enabled without cert
         config.enable_mtls = true;
+        assert!(config.validate().is_err());
+        config.enable_mtls = false;
+
+        // Invalid: quota URL without token
+        config.quota_tracker_url = Some("http://quota.local".to_string());
+        assert!(config.validate().is_err());
+
+        // Valid: quota URL with token
+        config.quota_tracker_token = Some("secret".to_string());
+        assert!(config.validate().is_ok());
+
+        // Invalid: quota token without URL
+        config.quota_tracker_url = None;
         assert!(config.validate().is_err());
     }
 }

@@ -35,3 +35,16 @@ impl From<x509_parser::error::X509Error> for AuthError {
         AuthError::InvalidCertificate(err.to_string())
     }
 }
+
+impl From<x509_parser::nom::Err<x509_parser::error::X509Error>> for AuthError {
+    fn from(err: x509_parser::nom::Err<x509_parser::error::X509Error>) -> Self {
+        match err {
+            x509_parser::nom::Err::Error(e) | x509_parser::nom::Err::Failure(e) => {
+                AuthError::InvalidCertificate(e.to_string())
+            }
+            x509_parser::nom::Err::Incomplete(_) => {
+                AuthError::InvalidCertificate("Incomplete certificate".to_string())
+            }
+        }
+    }
+}

@@ -1,21 +1,32 @@
 use super::ProxyError;
 use bytes::Bytes;
-use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, Uri};
+use http::{HeaderMap, Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use reqwest::Client;
-use std::str::FromStr;
 use std::time::Duration;
 use tracing::{debug, info, instrument};
+
+pub struct ForwardedResponse {
+    pub response: Response<Full<Bytes>>,
+    pub request_body_bytes: usize,
+    pub response_body_bytes: usize,
+}
 
 pub struct UpstreamClient {
     http_client: Client,
     upstream_base_url: String,
     max_body_size_bytes: usize,
+    forward_auth_header: bool,
 }
 
 impl UpstreamClient {
-    pub fn new(upstream_url: String, timeout_secs: u64, max_body_size_bytes: usize) -> anyhow::Result<Self> {
+    pub fn new(
+        upstream_url: String,
+        timeout_secs: u64,
+        max_body_size_bytes: usize,
+        forward_auth_header: bool,
+    ) -> anyhow::Result<Self> {
         // Build client with both HTTP/1.1 and HTTP/2 support
         // Protocol negotiation via ALPN or upgrade
         let http_client = Client::builder()
@@ -28,6 +39,7 @@ impl UpstreamClient {
             http_client,
             upstream_base_url: upstream_url.trim_end_matches('/').to_string(),
             max_body_size_bytes,
+            forward_auth_header,
         })
     }
 
@@ -35,11 +47,13 @@ impl UpstreamClient {
     pub async fn forward_request(
         &self,
         req: Request<Incoming>,
-    ) -> Result<Response<Full<Bytes>>, ProxyError> {
+    ) -> Result<ForwardedResponse, ProxyError> {
         let (parts, body) = req.into_parts();
 
         // Build upstream URL
-        let path_and_query = parts.uri.path_and_query()
+        let path_and_query = parts
+            .uri
+            .path_and_query()
             .map(|pq| pq.as_str())
             .unwrap_or("/");
 
@@ -63,7 +77,7 @@ impl UpstreamClient {
         }
 
         // Sanitize headers
-        let headers = Self::sanitize_headers(&parts.headers);
+        let headers = Self::sanitize_headers(&parts.headers, self.forward_auth_header);
 
         // Build upstream request
         let mut upstream_req = self
@@ -111,19 +125,23 @@ impl UpstreamClient {
         }
 
         // Get body
-        let response_body = upstream_response
-            .bytes()
-            .await
-            .map_err(|e| ProxyError::Upstream(format!("Failed to read upstream response: {}", e)))?;
+        let response_body = upstream_response.bytes().await.map_err(|e| {
+            ProxyError::Upstream(format!("Failed to read upstream response: {}", e))
+        })?;
 
+        let response_body_len = response_body.len();
         let response = response_builder
             .body(Full::new(response_body))
             .map_err(|e| ProxyError::Upstream(format!("Failed to build response: {}", e)))?;
 
-        Ok(response)
+        Ok(ForwardedResponse {
+            response,
+            request_body_bytes: body_bytes.len(),
+            response_body_bytes: response_body_len,
+        })
     }
 
-    fn sanitize_headers(headers: &HeaderMap) -> HeaderMap {
+    fn sanitize_headers(headers: &HeaderMap, forward_auth: bool) -> HeaderMap {
         let mut sanitized = HeaderMap::new();
 
         // List of hop-by-hop headers to remove
@@ -139,10 +157,20 @@ impl UpstreamClient {
         ];
 
         // List of internal headers to remove
-        const INTERNAL: &[&str] = &[
-            "x-tenant-id",
-            "authorization", // Will be re-added if needed by upstream
-        ];
+        const INTERNAL: &[&str] = &["x-tenant-id"];
+
+        let mut connection_tokens = std::collections::HashSet::new();
+
+        for value in headers.get_all("connection").iter() {
+            if let Ok(value_str) = value.to_str() {
+                for token in value_str.split(',') {
+                    let token = token.trim();
+                    if !token.is_empty() {
+                        connection_tokens.insert(token.to_ascii_lowercase());
+                    }
+                }
+            }
+        }
 
         for (name, value) in headers.iter() {
             let name_lower = name.as_str().to_lowercase();
@@ -151,7 +179,15 @@ impl UpstreamClient {
                 continue;
             }
 
+            if connection_tokens.contains(&name_lower) {
+                continue;
+            }
+
             if INTERNAL.contains(&name_lower.as_str()) {
+                continue;
+            }
+
+            if name_lower == "authorization" && !forward_auth {
                 continue;
             }
 
@@ -159,5 +195,48 @@ impl UpstreamClient {
         }
 
         sanitized
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpstreamClient;
+    use http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn sanitize_headers_preserves_authorization_when_forward_enabled() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer token"));
+        let sanitized = UpstreamClient::sanitize_headers(&headers, true);
+        assert_eq!(
+            sanitized.get("authorization").and_then(|v| v.to_str().ok()),
+            Some("Bearer token")
+        );
+    }
+
+    #[test]
+    fn sanitize_headers_strips_authorization_when_forward_disabled() {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", HeaderValue::from_static("Bearer token"));
+        let sanitized = UpstreamClient::sanitize_headers(&headers, false);
+        assert!(!sanitized.contains_key("authorization"));
+    }
+
+    #[test]
+    fn sanitize_headers_removes_connection_directives_and_targets() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "connection",
+            HeaderValue::from_static("keep-alive, Upgrade"),
+        );
+        headers.insert("keep-alive", HeaderValue::from_static("timeout=5"));
+        headers.insert("upgrade", HeaderValue::from_static("websocket"));
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+
+        let sanitized = UpstreamClient::sanitize_headers(&headers, true);
+        assert!(!sanitized.contains_key("connection"));
+        assert!(!sanitized.contains_key("keep-alive"));
+        assert!(!sanitized.contains_key("upgrade"));
+        assert!(sanitized.contains_key("content-type"));
     }
 }

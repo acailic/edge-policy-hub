@@ -1,8 +1,9 @@
 use crate::auth::AuthError;
 use crate::policy::PolicyError;
 use crate::redaction::RedactionError;
+use bytes::Bytes;
 use http::{Response, StatusCode};
-use hyper::body::Body;
+use http_body_util::Full;
 use serde_json::json;
 use thiserror::Error;
 
@@ -28,13 +29,9 @@ pub enum ProxyError {
 }
 
 impl ProxyError {
-    pub fn to_response(&self, request_id: Option<&str>) -> Response<Body> {
+    pub fn to_response(&self, request_id: Option<&str>) -> Response<Full<Bytes>> {
         let (status, error_code, message) = match self {
-            ProxyError::Auth(e) => (
-                StatusCode::UNAUTHORIZED,
-                "AUTH_ERROR",
-                e.to_string(),
-            ),
+            ProxyError::Auth(e) => (StatusCode::UNAUTHORIZED, "AUTH_ERROR", e.to_string()),
             ProxyError::Policy(e) => (
                 e.to_status_code(),
                 match e {
@@ -51,11 +48,7 @@ impl ProxyError {
                 "REDACTION_ERROR",
                 e.to_string(),
             ),
-            ProxyError::Upstream(e) => (
-                StatusCode::BAD_GATEWAY,
-                "UPSTREAM_ERROR",
-                e.to_string(),
-            ),
+            ProxyError::Upstream(e) => (StatusCode::BAD_GATEWAY, "UPSTREAM_ERROR", e.to_string()),
             ProxyError::BodyTooLarge { size, limit } => (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "BODY_TOO_LARGE",
@@ -77,7 +70,9 @@ impl ProxyError {
         Response::builder()
             .status(status)
             .header("Content-Type", "application/json")
-            .body(Body::from(serde_json::to_string(&body_json).unwrap()))
+            .body(Full::new(Bytes::from(
+                serde_json::to_string(&body_json).unwrap(),
+            )))
             .unwrap()
     }
 }

@@ -1,7 +1,8 @@
 use crate::auth::TenantContext;
 use chrono::Utc;
-use http::Method;
+use http::{HeaderMap, Method};
 use serde::{Deserialize, Serialize};
+use url::form_urlencoded;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AbacInput {
@@ -53,7 +54,8 @@ impl AbacInput {
         ctx: &TenantContext,
         method: &Method,
         path: &str,
-        _query: Option<&str>,
+        query: Option<&str>,
+        headers: &HeaderMap,
     ) -> Self {
         // Build subject from TenantContext
         let subject = SubjectAttributes {
@@ -77,21 +79,54 @@ impl AbacInput {
         let resource_type = extract_resource_type(path);
         let resource_id = extract_resource_id(path);
 
+        let mut query_id: Option<String> = None;
+        let mut query_region: Option<String> = None;
+        let mut query_classification: Option<String> = None;
+
+        if let Some(query_str) = query {
+            for (key, value) in form_urlencoded::parse(query_str.as_bytes()) {
+                let key_lower = key.to_string().to_ascii_lowercase();
+                let value_trimmed = value.trim();
+                if value_trimmed.is_empty() {
+                    continue;
+                }
+                let value_owned = value_trimmed.to_string();
+                match key_lower.as_str() {
+                    "id" => {
+                        if query_id.is_none() {
+                            query_id = Some(value_owned);
+                        }
+                    }
+                    "region" => {
+                        if query_region.is_none() {
+                            query_region = Some(value_owned);
+                        }
+                    }
+                    "class" | "classification" => {
+                        if query_classification.is_none() {
+                            query_classification = Some(value_owned);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         let resource = ResourceAttributes {
             r#type: resource_type,
-            id: resource_id,
-            classification: None,
-            region: None,
+            id: resource_id.or(query_id),
+            classification: header_value(headers, "x-classification").or(query_classification),
+            region: header_value(headers, "x-region").or(query_region),
             owner_tenant: ctx.tenant_id.clone(),
         };
 
         // Build environment attributes
         let environment = EnvironmentAttributes {
             time: Utc::now().to_rfc3339(),
-            country: None,
+            country: header_value(headers, "x-geo-country"),
             network: ctx.client_ip.map(|ip| ip.to_string()),
             risk_score: None,
-            bandwidth_used: Some(0.0), // Placeholder, will be updated with actual quota data
+            bandwidth_used: None,
         };
 
         Self {
@@ -101,6 +136,15 @@ impl AbacInput {
             environment,
         }
     }
+}
+
+fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
 }
 
 fn extract_resource_type(path: &str) -> String {
@@ -147,6 +191,9 @@ fn extract_resource_id(path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthMethod;
+    use http::{HeaderMap, HeaderValue};
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_extract_resource_type() {
@@ -159,10 +206,56 @@ mod tests {
 
     #[test]
     fn test_extract_resource_id() {
-        assert_eq!(extract_resource_id("/api/sensors/123"), Some("123".to_string()));
+        assert_eq!(
+            extract_resource_id("/api/sensors/123"),
+            Some("123".to_string())
+        );
         assert_eq!(extract_resource_id("/api/data"), None);
         assert_eq!(extract_resource_id("/sensors/456"), Some("456".to_string()));
-        assert_eq!(extract_resource_id("/v1/devices/789"), Some("789".to_string()));
+        assert_eq!(
+            extract_resource_id("/v1/devices/789"),
+            Some("789".to_string())
+        );
         assert_eq!(extract_resource_id("/"), None);
+    }
+
+    #[test]
+    fn test_from_request_uses_headers_for_resource_and_environment() {
+        let mut ctx = TenantContext::new("tenant-a".to_string(), AuthMethod::Header);
+        ctx.client_ip = Some(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 5)));
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Region", HeaderValue::from_static("us-west-2"));
+        headers.insert("X-Classification", HeaderValue::from_static("confidential"));
+        headers.insert("X-Geo-Country", HeaderValue::from_static("US"));
+
+        let input =
+            AbacInput::from_request(&ctx, &Method::GET, "/api/resources/42", None, &headers);
+
+        assert_eq!(input.resource.region.as_deref(), Some("us-west-2"));
+        assert_eq!(
+            input.resource.classification.as_deref(),
+            Some("confidential")
+        );
+        assert_eq!(input.environment.country.as_deref(), Some("US"));
+        assert_eq!(input.environment.network.as_deref(), Some("203.0.113.5"));
+    }
+
+    #[test]
+    fn test_from_request_falls_back_to_query_parameters() {
+        let ctx = TenantContext::new("tenant-b".to_string(), AuthMethod::Header);
+        let headers = HeaderMap::new();
+
+        let input = AbacInput::from_request(
+            &ctx,
+            &Method::GET,
+            "/api/resources",
+            Some("id=abc123&region=eu-central-1&class=restricted"),
+            &headers,
+        );
+
+        assert_eq!(input.resource.id.as_deref(), Some("abc123"));
+        assert_eq!(input.resource.region.as_deref(), Some("eu-central-1"));
+        assert_eq!(input.resource.classification.as_deref(), Some("restricted"));
     }
 }

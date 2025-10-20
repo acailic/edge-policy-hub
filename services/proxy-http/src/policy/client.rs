@@ -58,9 +58,7 @@ impl PolicyClient {
             PolicyError::InvalidResponse(format!("Failed to serialize ABAC input: {}", e))
         })?;
 
-        let request = PolicyQueryRequest {
-            input: input_value,
-        };
+        let request = PolicyQueryRequest { input: input_value };
 
         let start = std::time::Instant::now();
 

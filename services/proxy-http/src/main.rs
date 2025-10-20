@@ -1,13 +1,6 @@
-mod auth;
-mod config;
-mod policy;
-mod proxy;
-mod redaction;
-mod server;
-
 use anyhow::{Context, Result};
-use config::ProxyConfig;
-use server::ProxyServer;
+use edge_policy_proxy_http::config::ProxyConfig;
+use edge_policy_proxy_http::server::ProxyServer;
 use tokio::signal;
 use tracing::{error, info};
 use tracing_subscriber::{fmt, EnvFilter};
@@ -21,10 +14,14 @@ async fn main() -> Result<()> {
     init_tracing(&config.log_level);
 
     info!("edge-policy-proxy-http service starting");
-    info!("Configuration loaded: upstream={}, enforcer={}",
-          config.upstream_url, config.enforcer_url);
-    info!("mTLS enabled: {}, JWT enabled: {}",
-          config.enable_mtls, config.enable_jwt);
+    info!(
+        "Configuration loaded: upstream={}, enforcer={}",
+        config.upstream_url, config.enforcer_url
+    );
+    info!(
+        "mTLS enabled: {}, JWT enabled: {}",
+        config.enable_mtls, config.enable_jwt
+    );
 
     // Validate configuration
     if let Err(e) = config.validate() {
@@ -53,8 +50,7 @@ async fn main() -> Result<()> {
 }
 
 fn init_tracing(log_level: &str) {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(log_level));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
 
     fmt()
         .with_env_filter(filter)

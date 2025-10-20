@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 pub struct ProxyServer {
     config: Arc<ProxyConfig>,
@@ -40,7 +40,7 @@ impl ProxyServer {
 
     /// Create TLS acceptor with optional client authentication
     fn create_tls_acceptor(config: &ProxyConfig) -> Result<TlsAcceptor> {
-        use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+        use rustls::pki_types::CertificateDer;
         use rustls::server::WebPkiClientVerifier;
         use rustls::RootCertStore;
         use std::fs::File;
@@ -63,8 +63,8 @@ impl ProxyServer {
             .tls_key_path
             .as_ref()
             .context("TLS_KEY_PATH not set")?;
-        let key_file = File::open(key_path)
-            .context(format!("Failed to open key file: {:?}", key_path))?;
+        let key_file =
+            File::open(key_path).context(format!("Failed to open key file: {:?}", key_path))?;
         let mut key_reader = BufReader::new(key_file);
 
         let private_key = rustls_pemfile::private_key(&mut key_reader)
@@ -76,8 +76,8 @@ impl ProxyServer {
             .tls_client_ca_path
             .as_ref()
             .context("TLS_CLIENT_CA_PATH not set")?;
-        let ca_file = File::open(ca_path)
-            .context(format!("Failed to open CA file: {:?}", ca_path))?;
+        let ca_file =
+            File::open(ca_path).context(format!("Failed to open CA file: {:?}", ca_path))?;
         let mut ca_reader = BufReader::new(ca_file);
 
         let mut root_store = RootCertStore::empty();
@@ -173,7 +173,7 @@ impl ProxyServer {
 
             // Serve HTTP over TLS
             let io = TokioIo::new(io);
-            let handler = Arc::clone(&self.handler);
+            let handler: Arc<ProxyHandler> = Arc::clone(&self.handler);
             let peer_info_clone = Arc::clone(&peer_info);
 
             let service = service_fn(move |req| {
@@ -189,7 +189,7 @@ impl ProxyServer {
         } else {
             // Plain HTTP connection
             let io = TokioIo::new(stream);
-            let handler = Arc::clone(&self.handler);
+            let handler: Arc<ProxyHandler> = Arc::clone(&self.handler);
 
             let peer_info = Arc::new(PeerInfo {
                 addr: peer_addr,
@@ -227,8 +227,8 @@ pub struct PeerInfo {
 
 impl PeerInfo {
     /// Get client IP address
-    pub fn client_ip(&self) -> String {
-        self.addr.ip().to_string()
+    pub fn client_ip(&self) -> std::net::IpAddr {
+        self.addr.ip()
     }
 
     /// Get the first client certificate if available
@@ -245,6 +245,7 @@ impl PeerInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
     fn test_peer_info() {
@@ -253,7 +254,10 @@ mod tests {
             certificates: vec![],
         };
 
-        assert_eq!(peer_info.client_ip(), "127.0.0.1");
+        assert_eq!(
+            peer_info.client_ip(),
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+        );
         assert!(!peer_info.has_client_cert());
         assert!(peer_info.client_cert().is_none());
     }

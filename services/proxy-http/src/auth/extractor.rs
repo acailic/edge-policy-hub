@@ -1,7 +1,7 @@
 use super::{AuthError, AuthMethod, TenantContext, AUTHORIZATION_HEADER, TENANT_ID_HEADER};
-use crate::config::ProxyConfig;
-use http::{HeaderMap, Request};
-use hyper::body::Incoming;
+use crate::config::{JwtAlgorithm, ProxyConfig};
+use anyhow::Context;
+use http::HeaderMap;
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -32,19 +32,45 @@ pub struct TenantExtractor {
 impl TenantExtractor {
     pub fn new(config: &ProxyConfig) -> anyhow::Result<Self> {
         let (jwt_decoding_key, jwt_validation) = if config.enable_jwt {
-            let decoding_key = if let Some(secret) = &config.jwt_secret {
-                DecodingKey::from_secret(secret.as_bytes())
-            } else if let Some(key_path) = &config.jwt_public_key_path {
-                let key_data = fs::read(key_path)?;
-                DecodingKey::from_rsa_pem(&key_data)?
-            } else {
-                anyhow::bail!("JWT enabled but no secret or public key provided");
+            let algorithm = match config.jwt_algorithm {
+                JwtAlgorithm::HS256 => Algorithm::HS256,
+                JwtAlgorithm::HS384 => Algorithm::HS384,
+                JwtAlgorithm::HS512 => Algorithm::HS512,
+                JwtAlgorithm::RS256 => Algorithm::RS256,
+                JwtAlgorithm::RS384 => Algorithm::RS384,
+                JwtAlgorithm::RS512 => Algorithm::RS512,
+                JwtAlgorithm::ES256 => Algorithm::ES256,
+                JwtAlgorithm::ES384 => Algorithm::ES384,
             };
 
-            let mut validation = Validation::new(Algorithm::HS256);
-            if config.jwt_secret.is_none() && config.jwt_public_key_path.is_some() {
-                validation.algorithms = vec![Algorithm::RS256];
-            }
+            let decoding_key = match config.jwt_algorithm {
+                JwtAlgorithm::HS256 | JwtAlgorithm::HS384 | JwtAlgorithm::HS512 => {
+                    let secret = config
+                        .jwt_secret
+                        .as_ref()
+                        .context("JWT secret missing for HMAC algorithm")?;
+                    DecodingKey::from_secret(secret.as_bytes())
+                }
+                JwtAlgorithm::RS256 | JwtAlgorithm::RS384 | JwtAlgorithm::RS512 => {
+                    let key_path = config
+                        .jwt_public_key_path
+                        .as_ref()
+                        .context("JWT public key path missing for RSA algorithm")?;
+                    let key_data = fs::read(key_path)?;
+                    DecodingKey::from_rsa_pem(&key_data)?
+                }
+                JwtAlgorithm::ES256 | JwtAlgorithm::ES384 => {
+                    let key_path = config
+                        .jwt_public_key_path
+                        .as_ref()
+                        .context("JWT public key path missing for ECDSA algorithm")?;
+                    let key_data = fs::read(key_path)?;
+                    DecodingKey::from_ec_pem(&key_data)?
+                }
+            };
+
+            let mut validation = Validation::new(algorithm);
+            validation.algorithms = vec![algorithm];
 
             if let Some(issuer) = &config.jwt_issuer {
                 validation.set_issuer(&[issuer]);
@@ -239,5 +265,140 @@ impl TenantExtractor {
                 Err(AuthError::TenantIdNotFound)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::ProxyConfig;
+    use chrono::{Duration, Utc};
+    use jsonwebtoken::{encode, EncodingKey, Header};
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    const RSA_PRIVATE_KEY: &str = include_str!("fixtures/test-rsa-private.pem");
+    const RSA_PUBLIC_KEY: &str = include_str!("fixtures/test-rsa-public.pem");
+
+    fn base_config() -> ProxyConfig {
+        ProxyConfig {
+            host: "127.0.0.1".to_string(),
+            port: 0,
+            upstream_url: "http://localhost:9000".to_string(),
+            request_timeout_secs: 5,
+            max_body_size_bytes: 1024,
+            enforcer_url: "http://localhost:8181".to_string(),
+            enable_mtls: false,
+            tls_cert_path: None,
+            tls_key_path: None,
+            tls_client_ca_path: None,
+            enable_jwt: false,
+            jwt_secret: None,
+            jwt_public_key_path: None,
+            jwt_issuer: None,
+            jwt_audience: None,
+            jwt_algorithm: JwtAlgorithm::RS256,
+            forward_auth_header: false,
+            log_level: "warn".to_string(),
+            quota_tracker_url: None,
+            quota_tracker_token: None,
+            default_region: None,
+        }
+    }
+
+    #[test]
+    fn hs256_tokens_validate_with_matching_algorithm() {
+        let mut config = base_config();
+        config.enable_jwt = true;
+        config.jwt_algorithm = JwtAlgorithm::HS256;
+        config.jwt_secret = Some("super-secret".to_string());
+
+        let extractor = TenantExtractor::new(&config).expect("extractor should initialize");
+
+        let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
+        let claims = JwtClaims {
+            sub: Some("user-1".to_string()),
+            tenant_id: Some("tenant-hs".to_string()),
+            tid: None,
+            organization_id: None,
+            roles: None,
+            scope: None,
+            device_id: None,
+            iss: None,
+            aud: None,
+            exp: Some(exp),
+        };
+
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes()),
+        )
+        .expect("token should encode");
+
+        let context = extractor
+            .extract_from_jwt(&token)
+            .expect("token should validate");
+        assert_eq!(context.tenant_id, "tenant-hs");
+
+        let invalid_token = encode(
+            &Header::new(Algorithm::HS384),
+            &claims,
+            &EncodingKey::from_secret(config.jwt_secret.unwrap().as_bytes()),
+        )
+        .expect("token should encode");
+
+        let result = extractor.extract_from_jwt(&invalid_token);
+        assert!(matches!(result, Err(AuthError::InvalidJwt(_))));
+    }
+
+    #[test]
+    fn rs256_tokens_require_configured_algorithm() {
+        let mut public_key_file = NamedTempFile::new().expect("public key file");
+        public_key_file
+            .write_all(RSA_PUBLIC_KEY.as_bytes())
+            .expect("write public key");
+
+        let mut config = base_config();
+        config.enable_jwt = true;
+        config.jwt_algorithm = JwtAlgorithm::RS256;
+        config.jwt_public_key_path = Some(public_key_file.path().to_path_buf());
+
+        let extractor = TenantExtractor::new(&config).expect("extractor should initialize");
+        let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
+        let claims = JwtClaims {
+            sub: Some("user-1".to_string()),
+            tenant_id: Some("tenant-rs".to_string()),
+            tid: None,
+            organization_id: None,
+            roles: None,
+            scope: None,
+            device_id: None,
+            iss: None,
+            aud: None,
+            exp: Some(exp),
+        };
+
+        let token = encode(
+            &Header::new(Algorithm::RS256),
+            &claims,
+            &EncodingKey::from_rsa_pem(RSA_PRIVATE_KEY.as_bytes()).expect("load private key"),
+        )
+        .expect("token should encode");
+
+        let context = extractor
+            .extract_from_jwt(&token)
+            .expect("token should validate");
+        assert_eq!(context.tenant_id, "tenant-rs");
+
+        let mismatched = encode(
+            &Header::new(Algorithm::RS512),
+            &claims,
+            &EncodingKey::from_rsa_pem(RSA_PRIVATE_KEY.as_bytes()).expect("load private key"),
+        )
+        .expect("token should encode");
+
+        let result = extractor.extract_from_jwt(&mismatched);
+        assert!(matches!(result, Err(AuthError::InvalidJwt(_))));
     }
 }

@@ -9,7 +9,11 @@ impl RedactionEngine {
         Self
     }
 
-    pub fn redact_fields(&self, json_body: &[u8], paths: &[String]) -> Result<Vec<u8>, RedactionError> {
+    pub fn redact_fields(
+        &self,
+        json_body: &[u8],
+        paths: &[String],
+    ) -> Result<Vec<u8>, RedactionError> {
         // Try to parse as JSON
         let mut value: Value = match serde_json::from_slice(json_body) {
             Ok(v) => v,
@@ -111,7 +115,8 @@ impl RedactionEngine {
                             any_removed = true;
                         } else {
                             // Continue searching deeper
-                            if Self::remove_field_at_any_depth(nested_value, path_parts, depth + 1) {
+                            if Self::remove_field_at_any_depth(nested_value, path_parts, depth + 1)
+                            {
                                 any_removed = true;
                             }
                         }

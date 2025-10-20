@@ -5,7 +5,7 @@ use crate::server::PeerInfo;
 use bytes::Bytes;
 use http::{HeaderValue, Request, Response};
 use http_body_util::{BodyExt, Full};
-use hyper::body::Incoming;
+use hyper::body::{Body, Incoming};
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -28,7 +28,9 @@ impl ProxyHandler {
         // Wrap entire pipeline in timeout
         let timeout_duration = self.state.config.request_timeout();
 
-        match tokio::time::timeout(timeout_duration, self.handle_request_inner(req, peer_info)).await {
+        match tokio::time::timeout(timeout_duration, self.handle_request_inner(req, peer_info))
+            .await
+        {
             Ok(result) => result,
             Err(_) => Err(ProxyError::Timeout),
         }
@@ -49,7 +51,7 @@ impl ProxyHandler {
                 .collect::<Vec<Vec<u8>>>()
         });
 
-        let client_ip = peer_info.as_ref().map(|info| info.client_ip());
+        let client_ip = peer_info.as_ref().map(|info| info.addr.ip());
 
         // Step 1: Extract tenant context
         debug!("Step 1: Extracting tenant context");
@@ -62,6 +64,22 @@ impl ProxyHandler {
         if let Some(ip) = client_ip {
             tenant_context.client_ip = Some(ip);
         }
+
+        let quota_usage_bytes = if let Some(quota_client) = &self.state.quota_client {
+            match quota_client.get_usage(&tenant_context.tenant_id).await {
+                Ok(usage) => Some(usage.bandwidth_bytes),
+                Err(err) => {
+                    warn!(
+                        tenant_id = %tenant_context.tenant_id,
+                        error = %err,
+                        "Failed to fetch quota usage; proceeding without bandwidth context"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         let request_id = tenant_context.request_id.clone();
         tracing::Span::current().record("request_id", &request_id);
@@ -79,12 +97,17 @@ impl ProxyHandler {
         let path = req.uri().path().to_string();
         let query = req.uri().query().map(|q| q.to_string());
 
-        let abac_input = AbacInput::from_request(
+        let mut abac_input = AbacInput::from_request(
             &tenant_context,
             &method,
             &path,
             query.as_deref(),
+            req.headers(),
         );
+
+        if let Some(bytes) = quota_usage_bytes {
+            abac_input.environment.bandwidth_used = Some(bytes as f64);
+        }
 
         debug!(abac_input = ?abac_input, "ABAC input prepared");
 
@@ -109,8 +132,11 @@ impl ProxyHandler {
         // Step 4: Forward request to upstream
         debug!("Step 4: Forwarding request to upstream");
         let upstream_start = std::time::Instant::now();
-        let mut upstream_response = self.state.upstream_client.forward_request(req).await?;
+        let forwarded = self.state.upstream_client.forward_request(req).await?;
         let upstream_latency = upstream_start.elapsed();
+        let mut upstream_response = forwarded.response;
+        let request_body_bytes = forwarded.request_body_bytes;
+        let mut response_body_bytes = forwarded.response_body_bytes;
 
         debug!(
             status = upstream_response.status().as_u16(),
@@ -133,17 +159,24 @@ impl ProxyHandler {
                 if content_type.contains("application/json") {
                     // Extract body
                     let (parts, body) = upstream_response.into_parts();
-                    let body_bytes = body.into_data_stream().collect().await
-                        .map_err(|e| ProxyError::Upstream(format!("Failed to read response body: {}", e)))?
+                    let body_bytes = body
+                        .collect()
+                        .await
+                        .map_err(|e| {
+                            ProxyError::Upstream(format!("Failed to read response body: {}", e))
+                        })?
                         .to_bytes();
 
                     // Check body size limit
-                    if body_bytes.len() > self.state.config.max_body_size_bytes {
+                    let body_len = body_bytes.len();
+                    if body_len > self.state.config.max_body_size_bytes {
                         warn!(
-                            size = body_bytes.len(),
+                            size = body_len,
                             limit = self.state.config.max_body_size_bytes,
                             "Response body exceeds max size, skipping redaction"
                         );
+                        response_body_bytes = body_len;
+                        upstream_response = Response::from_parts(parts, Full::new(body_bytes));
                     } else {
                         // Apply redaction
                         match self
@@ -152,18 +185,17 @@ impl ProxyHandler {
                             .redact_fields(&body_bytes, redact_paths)
                         {
                             Ok(redacted_bytes) => {
+                                let redacted = Bytes::from(redacted_bytes);
+                                let redacted_len = redacted.len();
                                 info!(
-                                    original_size = body_bytes.len(),
-                                    redacted_size = redacted_bytes.len(),
+                                    original_size = body_len,
+                                    redacted_size = redacted_len,
                                     paths = ?redact_paths,
                                     "Redaction applied"
                                 );
 
                                 // Rebuild response with redacted body
-                                let mut response = Response::from_parts(
-                                    parts,
-                                    Full::new(Bytes::from(redacted_bytes)),
-                                );
+                                let mut response = Response::from_parts(parts, Full::new(redacted));
 
                                 // Update Content-Length header
                                 let body_len = response.body().size_hint().exact().unwrap_or(0);
@@ -172,11 +204,13 @@ impl ProxyHandler {
                                     HeaderValue::from_str(&body_len.to_string()).unwrap(),
                                 );
 
+                                response_body_bytes = redacted_len;
                                 upstream_response = response;
                             }
                             Err(e) => {
                                 error!(error = %e, "Redaction failed, returning original response");
                                 // Rebuild response with original body
+                                response_body_bytes = body_len;
                                 upstream_response =
                                     Response::from_parts(parts, Full::new(body_bytes));
                             }
@@ -196,14 +230,26 @@ impl ProxyHandler {
             .body()
             .size_hint()
             .exact()
-            .unwrap_or(0);
+            .unwrap_or(response_body_bytes as u64);
 
         debug!(
             response_size_bytes = response_size,
-            "Bandwidth usage logged (TODO: integrate with quota tracker)"
+            request_size_bytes = request_body_bytes,
+            "Computed bandwidth usage for quota tracking"
         );
-        // TODO: Call quota tracker service to update bandwidth counters
-        // quota_tracker.update_bandwidth(&tenant_context.tenant_id, response_size as f64 / (1024.0 * 1024.0 * 1024.0)).await;
+        if let Some(quota_client) = &self.state.quota_client {
+            let total_bytes = (request_body_bytes as u64).saturating_add(response_size);
+            if let Err(err) = quota_client
+                .increment(&tenant_context.tenant_id, total_bytes, &request_id)
+                .await
+            {
+                warn!(
+                    tenant_id = %tenant_context.tenant_id,
+                    error = %err,
+                    "Failed to update quota usage after request"
+                );
+            }
+        }
 
         // Step 7: Audit logging
         let total_latency = start.elapsed();
@@ -225,10 +271,9 @@ impl ProxyHandler {
 
         // Add request ID to response headers
         let (mut parts, body) = upstream_response.into_parts();
-        parts.headers.insert(
-            "x-request-id",
-            HeaderValue::from_str(&request_id).unwrap(),
-        );
+        parts
+            .headers
+            .insert("x-request-id", HeaderValue::from_str(&request_id).unwrap());
 
         Ok(Response::from_parts(parts, body))
     }

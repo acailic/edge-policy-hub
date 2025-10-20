@@ -87,6 +87,9 @@ Environment variables:
 **Enforcer Integration:**
 - `ENFORCER_URL` - OPA enforcer service URL (default: http://127.0.0.1:8181)
 
+**Upstream Behavior:**
+- `FORWARD_AUTH_HEADER` - Forward the inbound `Authorization` header to the upstream service (default: false)
+
 **TLS Settings:**
 - `ENABLE_MTLS` - Enable mTLS client authentication (default: false)
 - `TLS_CERT_PATH` - Server certificate path (required if HTTPS)
@@ -102,6 +105,10 @@ Environment variables:
 
 **Logging:**
 - `LOG_LEVEL` - Logging level (default: info)
+
+**Quota Tracker (optional):**
+- `QUOTA_TRACKER_URL` - Base URL of the quota tracking service
+- `QUOTA_TRACKER_TOKEN` - Bearer token used when calling the quota service
 
 ## Tenant ID Extraction
 
@@ -161,14 +168,15 @@ The proxy collects attributes from requests and maps them to the ABAC input stru
 **Resource Attributes:**
 - `type`: Extracted from request path (e.g., `/api/sensors` → `sensors`)
 - `id`: Extracted from path parameters
+- `classification`: From `X-Classification` header or `class` query parameter
+- `region`: From `X-Region` header or `region` query parameter
 - `owner_tenant`: Same as subject tenant_id
-- `region`: From custom headers or config
 
 **Environment Attributes:**
 - `time`: Current timestamp (ISO 8601)
-- `country`: From client IP (GeoIP lookup, future)
+- `country`: From GeoIP headers (e.g., `X-Geo-Country`) when present
 - `network`: Client IP address
-- `bandwidth_used`: Placeholder 0.0 (will integrate with quota tracker)
+- `bandwidth_used`: Current bandwidth usage provided by quota tracker (bytes), when available
 
 ## Field-Level Redaction
 
