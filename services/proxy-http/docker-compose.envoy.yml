@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  envoy:
+    image: envoyproxy/envoy:v1.28-latest
+    container_name: edge-policy-envoy
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./certs:/etc/envoy/certs:ro
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "9901:9901"  # Admin interface
+    environment:
+      - UPSTREAM_HOST=${UPSTREAM_HOST:-backend}
+      - UPSTREAM_PORT=${UPSTREAM_PORT:-443}
+      - JWT_ISSUER=${JWT_ISSUER:-https://auth.example.com}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-edge-policy-hub}
+      - JWKS_URI=${JWKS_URI:-https://auth.example.com/.well-known/jwks.json}
+      - JWKS_HOST=${JWKS_HOST:-auth.example.com}
+      - JWKS_PORT=${JWKS_PORT:-443}
+    command: >
+      /usr/local/bin/envoy
+      -c /etc/envoy/envoy.yaml
+      --log-level info
+    depends_on:
+      - opa
+    networks:
+      - edge-policy-net
+
+  opa:
+    image: openpolicyagent/opa:latest-envoy
+    container_name: edge-policy-opa
+    volumes:
+      - ./opa-config.yaml:/config/opa-config.yaml:ro
+      - ./policies:/policies:ro
+      - ./bundles:/bundles
+    ports:
+      - "8181:8181"  # HTTP API
+      - "9191:9191"  # gRPC for Envoy ext_authz
+    environment:
+      - BUNDLE_SERVICE_URL=${BUNDLE_SERVICE_URL:-http://audit-store:8080}
+      - BUNDLE_SERVICE_TOKEN=${BUNDLE_SERVICE_TOKEN:-}
+    command:
+      - "run"
+      - "--server"
+      - "--config-file=/config/opa-config.yaml"
+      - "--addr=:8181"
+      - "--diagnostic-addr=:8282"
+      - "/policies"
+    networks:
+      - edge-policy-net
+
+  # Example backend service
+  backend:
+    image: nginx:alpine
+    container_name: edge-policy-backend
+    ports:
+      - "8090:80"
+    networks:
+      - edge-policy-net
+
+networks:
+  edge-policy-net:
+    driver: bridge

@@ -1,0 +1,43 @@
+[package]
+name = "edge-policy-proxy-http"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# HTTP and networking
+axum = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors", "timeout"] }
+http = "1"
+http-body-util = "0.1"
+reqwest = { workspace = true }
+bytes = "1"
+
+# TLS and certificates
+rustls = "0.23"
+tokio-rustls = "0.26"
+x509-parser = "0.16"
+
+# Authentication
+jsonwebtoken = "9"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Logging and tracing
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Utilities
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }

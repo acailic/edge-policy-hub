@@ -1,0 +1,28 @@
+<service>
+  <id>EdgePolicyHub</id>
+  <name>Edge Policy Hub</name>
+  <description>Multi-tenant edge policy enforcement gateway with ABAC and OPA/Rego</description>
+  <executable>%BASE%\edge-policy-hub-launcher.exe</executable>
+  <arguments></arguments>
+  <logpath>%BASE%\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="5 sec" />
+  <onfailure action="restart" delay="10 sec" />
+  <onfailure action="none" />
+  <resetfailure>1 hour</resetfailure>
+  <env name="ENFORCER_HOST" value="127.0.0.1" />
+  <env name="ENFORCER_PORT" value="8181" />
+  <env name="PROXY_PORT" value="8080" />
+  <env name="MQTT_PORT" value="1883" />
+  <env name="AUDIT_PORT" value="8182" />
+  <env name="QUOTA_PORT" value="8183" />
+  <env name="LOG_LEVEL" value="info" />
+  <workingdirectory>%BASE%</workingdirectory>
+  <priority>Normal</priority>
+  <stoptimeout>15 sec</stoptimeout>
+</service>

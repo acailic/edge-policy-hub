@@ -1,0 +1,12 @@
+[build]
+target-dir = "target"
+incremental = true
+
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[alias]
+check-all = "check --workspace --all-features"
+test-all = "test --workspace --all-features"
+lint = "clippy --workspace --all-features -- -D warnings"

@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build workspace (${{ matrix.rust }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo build
+        run: cargo build --workspace --all-features
+
+  test:
+    name: Test workspace (${{ matrix.rust }})
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: rustfmt, clippy
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+      - name: Cargo test
+        run: cargo test --workspace --all-features
+      - name: OPA policy tests
+        run: opa test libs/rego-bundles/policies/
+
+  lint:
+    name: Clippy and fmt
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
+
+  audit:
+    name: Security audit
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  coverage:
+    name: Coverage
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
+      - name: Generate coverage
+        run: cargo tarpaulin --workspace --out Xml --output-dir coverage/ --fail-under 70
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+      - name: Upload to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@v3
+        with:
+          files: coverage/cobertura.xml
+
+  opa-tests:
+    name: OPA policy tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OPA
+        run: |
+          curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+          chmod +x opa
+          sudo mv opa /usr/local/bin/
+      - name: Verify OPA installation
+        run: opa version
+      - name: Run OPA tests
+        run: opa test -v libs/rego-bundles/policies/
+      - name: Check Rego formatting
+        run: |
+          if ! opa fmt -l libs/rego-bundles/policies/ | grep -q .; then
+            echo "All Rego files are properly formatted"
+          else
+            echo "The following files need formatting:"
+            opa fmt -l libs/rego-bundles/policies/
+            exit 1
+          fi
+      - name: Generate coverage report
+        run: opa test --coverage libs/rego-bundles/policies/
+      - name: Validate Rego syntax
+        run: opa check libs/rego-bundles/policies/
+
+  e2e-tests:
+    name: E2E tests
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binaries for E2E tests
+        run: cargo build --release --workspace
+      - name: Run E2E tests
+        run: cargo test --test e2e --features e2e-tests -- --test-threads=1
+      - name: Upload E2E test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-logs
+          path: |
+            /tmp/edge-policy-*
+            target/debug/deps/*.log
+          retention-days: 7
+
+  benchmarks:
+    name: Benchmarks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: Swatinem/rust-cache@v2
+      - name: Run all benchmarks
+        run: cargo bench --workspace -- --save-baseline ci
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: target/criterion/
+          retention-days: 30

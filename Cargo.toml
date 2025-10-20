@@ -1,0 +1,90 @@
+[package]
+name = "edge-policy-hub"
+version = "0.1.0"
+edition = "2021"
+authors = ["Edge Policy Hub Maintainers <maintainers@edgepolicyhub.dev>"]
+license = "MIT"
+repository = "https://github.com/acailic/edge-policy-hub"
+description = "Edge Policy Hub - shared test and benchmark utilities"
+publish = false
+
+[features]
+default = ["bench-include"]
+bench-include = []
+e2e-tests = []
+mqtt-e2e = []
+
+[dependencies]
+edge-policy-enforcer = { path = "services/enforcer" }
+edge-policy-dsl = { path = "libs/policy-dsl" }
+serde_json = { workspace = true }
+tempfile = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
+md5 = "0.7"
+
+[dev-dependencies]
+criterion = { workspace = true }
+wiremock = { workspace = true }
+rumqttc = { workspace = true }
+
+[[bench]]
+name = "policy_latency"
+harness = false
+
+[[bench]]
+name = "end_to_end_latency"
+harness = false
+
+[workspace]
+members = [
+    ".",
+    "services/enforcer",
+    "services/proxy-http",
+    "services/bridge-mqtt",
+    "services/audit-store",
+    "services/quota-tracker",
+    "libs/policy-dsl",
+    "libs/rego-bundles",
+    "apps/tauri-ui/src-tauri"
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+authors = ["Edge Policy Hub Maintainers <maintainers@edgepolicyhub.dev>"]
+license = "MIT"
+repository = "https://github.com/acailic/edge-policy-hub"
+description = "Edge Policy Hub mono-repo workspace"
+
+[workspace.dependencies]
+anyhow = "1"
+axum = "0.7"
+hyper = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+tokio = { version = "1", features = ["full", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.21"
+dashmap = "6"
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+wiremock = "0.6"
+rumqttc = { version = "0.24", default-features = false, features = ["use-rustls", "websocket"] }
+tempfile = "3"
+tokio-test = "0.4"
+rand = "0.8"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }

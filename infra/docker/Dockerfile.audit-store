@@ -1,0 +1,47 @@
+FROM rust:1.75-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY services ./services
+COPY libs ./libs
+
+RUN cargo build --release --package edge-policy-audit-store
+RUN strip target/release/edge-policy-audit-store || true
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 curl sqlite3 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd --system --no-create-home --shell /bin/false edge-policy
+RUN mkdir -p /var/lib/edge-policy-hub/data/audit && \
+    mkdir -p /var/lib/edge-policy-hub/config && \
+    chown -R edge-policy:edge-policy /var/lib/edge-policy-hub
+
+COPY --from=builder /build/target/release/edge-policy-audit-store /usr/local/bin/edge-policy-audit-store
+RUN chown root:root /usr/local/bin/edge-policy-audit-store && chmod 0755 /usr/local/bin/edge-policy-audit-store
+
+USER edge-policy
+WORKDIR /var/lib/edge-policy-hub
+
+ENV AUDIT_HOST=0.0.0.0 \
+    AUDIT_PORT=8182 \
+    AUDIT_DATA_DIR=/var/lib/edge-policy-hub/data/audit \
+    AUDIT_HMAC_SECRET_FILE=/run/secrets/hmac-secret \
+    ENABLE_DEFERRED_UPLOAD=true \
+    LOG_LEVEL=info
+
+EXPOSE 8182
+
+VOLUME ["/var/lib/edge-policy-hub/data/audit"]
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8182/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/edge-policy-audit-store"]

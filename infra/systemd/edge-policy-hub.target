@@ -1,0 +1,8 @@
+[Unit]
+Description=Edge Policy Hub - All Services
+Documentation=https://github.com/acailic/edge-policy-hub
+Requires=edge-policy-enforcer.service edge-policy-audit-store.service edge-policy-quota-tracker.service
+Wants=edge-policy-proxy-http.service edge-policy-bridge-mqtt.service
+
+[Install]
+WantedBy=multi-user.target

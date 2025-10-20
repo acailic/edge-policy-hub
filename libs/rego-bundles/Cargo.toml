@@ -1,0 +1,10 @@
+[package]
+name = "edge-policy-rego-bundles"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+include_dir = "0.7"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,44 @@
+FROM rust:1.75-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends pkg-config libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY services ./services
+COPY libs ./libs
+
+RUN cargo build --release --package edge-policy-proxy-http
+RUN strip target/release/edge-policy-proxy-http || true
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates libssl3 curl && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN useradd --system --no-create-home --shell /bin/false edge-policy
+RUN mkdir -p /var/lib/edge-policy-hub/certs && \
+    mkdir -p /var/lib/edge-policy-hub/config/tenants.d && \
+    chown -R edge-policy:edge-policy /var/lib/edge-policy-hub
+
+COPY --from=builder /build/target/release/edge-policy-proxy-http /usr/local/bin/edge-policy-proxy-http
+RUN chown root:root /usr/local/bin/edge-policy-proxy-http && chmod 0755 /usr/local/bin/edge-policy-proxy-http
+
+USER edge-policy
+WORKDIR /var/lib/edge-policy-hub
+
+ENV PROXY_HOST=0.0.0.0 \
+    PROXY_PORT=8080 \
+    UPSTREAM_URL=http://backend:8000 \
+    ENFORCER_URL=http://enforcer:8181 \
+    LOG_LEVEL=info
+
+EXPOSE 8080 8443
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/edge-policy-proxy-http"]

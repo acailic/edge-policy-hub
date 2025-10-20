@@ -1,0 +1,35 @@
+{
+  "_comment": "US retail operations with PCI-DSS compliance and business-hour restrictions",
+  "tenant_id": "tenant-us-retail",
+  "name": "US Retail Operations",
+  "status": "active",
+  "config": {
+    "quotas": {
+      "_comment": "Standard throughput for POS and inventory systems",
+      "message_limit": 50000,
+      "bandwidth_limit_gb": 100
+    },
+    "features": {
+      "_comment": "Enable JWT for integration with existing identity providers",
+      "data_residency": ["US"],
+      "pii_redaction": true,
+      "enable_jwt": true
+    },
+    "network_config": {
+      "_comment": "Retail stores connect via corporate VPN",
+      "allowed_subnets": ["172.16.0.0/12"],
+      "require_vpn": true
+    },
+    "compliance": {
+      "_comment": "Payment data must comply with PCI-DSS; HIPAA not required",
+      "pci_dss_enabled": true,
+      "hipaa_enabled": false
+    },
+    "business_hours": {
+      "_comment": "Prevent after-hours access to payment data",
+      "start": "09:00",
+      "end": "17:00",
+      "timezone": "America/New_York"
+    }
+  }
+}

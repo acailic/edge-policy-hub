@@ -1,0 +1,196 @@
+openapi: 3.0.3
+info:
+  title: Edge Policy Quota Tracker API
+  version: "1.0.0"
+  description: >
+    Persistent quota tracking service with DashMap caching and automatic
+    reset schedules for message and bandwidth limits.
+servers:
+  - url: http://localhost:8183
+    description: Local quota tracker
+paths:
+  /api/quota/increment:
+    post:
+      summary: Increment quota counters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncrementQuotaRequest'
+      responses:
+        '200':
+          description: Counters updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncrementQuotaResponse'
+  /api/quota/{tenant_id}:
+    get:
+      summary: Retrieve tenant quota metrics
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200':
+          description: Current quota snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetQuotaResponse'
+        '404':
+          description: Tenant not tracked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/quota/check:
+    post:
+      summary: Check whether quotas exceeded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckQuotaRequest'
+      responses:
+        '200':
+          description: Quota evaluation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckQuotaResponse'
+  /api/quota/limits:
+    post:
+      summary: Set quota limits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetLimitsRequest'
+      responses:
+        '200':
+          description: Limits updated
+  /api/quota/{tenant_id}/reset:
+    post:
+      summary: Reset quota counters for tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200':
+          description: Counters reset
+  /api/quota:
+    get:
+      summary: List quota metrics for all tenants
+      responses:
+        '200':
+          description: Metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QuotaMetrics'
+  /health:
+    get:
+      summary: Health endpoint
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+components:
+  parameters:
+    TenantIdPath:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    IncrementQuotaRequest:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+        message_count:
+          type: integer
+        bytes_sent:
+          type: integer
+    IncrementQuotaResponse:
+      type: object
+      properties:
+        metrics:
+          $ref: '#/components/schemas/QuotaMetrics'
+    GetQuotaResponse:
+      type: object
+      properties:
+        metrics:
+          $ref: '#/components/schemas/QuotaMetrics'
+    CheckQuotaRequest:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+    CheckQuotaResponse:
+      type: object
+      properties:
+        exceeded:
+          type: boolean
+        quota_type:
+          type: string
+          nullable: true
+        limit:
+          type: number
+          nullable: true
+        current:
+          type: number
+          nullable: true
+    SetLimitsRequest:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+        message_limit:
+          type: integer
+        bandwidth_limit_gb:
+          type: integer
+    QuotaMetrics:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        message_count:
+          type: integer
+        bytes_sent:
+          type: integer
+        message_limit:
+          type: integer
+        bandwidth_limit_gb:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true

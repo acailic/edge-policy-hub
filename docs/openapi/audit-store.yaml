@@ -1,0 +1,318 @@
+openapi: 3.0.3
+info:
+  title: Edge Policy Audit Store API
+  version: "1.0.0"
+  description: >
+    Append-only audit log service with per-tenant isolation, policy bundle registry,
+    and HMAC-SHA256 signing.
+servers:
+  - url: http://localhost:8182
+    description: Local audit store
+paths:
+  /api/audit/logs:
+    post:
+      summary: Write audit log
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuditLogRequest'
+      responses:
+        '201':
+          description: Log stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogResponse'
+    get:
+      summary: Query audit logs
+      parameters:
+        - $ref: '#/components/parameters/TenantIdQuery'
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: decision
+          in: query
+          schema:
+            type: string
+            enum: [allow, deny]
+        - name: protocol
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        '200':
+          description: Logs matching filters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryLogsResponse'
+  /api/tenants:
+    post:
+      summary: Create tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TenantRequest'
+      responses:
+        '201':
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+    get:
+      summary: List tenants
+      responses:
+        '200':
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TenantResponse'
+  /api/tenants/{tenant_id}:
+    get:
+      summary: Get tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      responses:
+        '200':
+          description: Tenant found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '404':
+          description: Tenant missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTenantRequest'
+      responses:
+        '200':
+          description: Tenant updated
+  /api/bundles:
+    post:
+      summary: Register policy bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyBundleRecord'
+      responses:
+        '201':
+          description: Bundle stored
+    get:
+      summary: List bundles
+      parameters:
+        - $ref: '#/components/parameters/TenantIdQuery'
+      responses:
+        '200':
+          description: Bundle list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PolicyBundleRecord'
+  /api/bundles/{bundle_id}:
+    get:
+      summary: Fetch bundle metadata
+      parameters:
+        - name: bundle_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bundle metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyBundleRecord'
+        '404':
+          description: Bundle missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/bundles/{bundle_id}/activate:
+    post:
+      summary: Activate bundle
+      parameters:
+        - name: bundle_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bundle activated
+  /health:
+    get:
+      summary: Service health
+      responses:
+        '200':
+          description: Healthy status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+components:
+  parameters:
+    TenantIdPath:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TenantIdQuery:
+      name: tenant_id
+      in: query
+      required: true
+      schema:
+        type: string
+  schemas:
+    AuditLogRequest:
+      type: object
+      required: [tenant_id, decision, resource, protocol]
+      properties:
+        tenant_id:
+          type: string
+        decision:
+          type: string
+          enum: [allow, deny]
+        resource:
+          type: string
+        protocol:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+    AuditLogResponse:
+      type: object
+      properties:
+        log_id:
+          type: string
+        signature:
+          type: string
+    QueryLogsResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLogEntry'
+    AuditLogEntry:
+      allOf:
+        - $ref: '#/components/schemas/AuditLogRequest'
+        - type: object
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            uploaded:
+              type: boolean
+    TenantRequest:
+      type: object
+      required: [tenant_id, name, config]
+      properties:
+        tenant_id:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          default: active
+        config:
+          type: object
+          additionalProperties: true
+    TenantResponse:
+      allOf:
+        - $ref: '#/components/schemas/TenantRequest'
+        - type: object
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    UpdateTenantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+    PolicyBundleRecord:
+      type: object
+      required: [tenant_id, bundle_id, version]
+      properties:
+        bundle_id:
+          type: string
+        tenant_id:
+          type: string
+        version:
+          type: string
+        checksum:
+          type: string
+        status:
+          type: string
+          enum: [draft, active]
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true

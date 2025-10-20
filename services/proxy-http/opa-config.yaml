@@ -1,0 +1,40 @@
+# OPA sidecar configuration for Envoy ext_authz
+services:
+  - name: envoy.ext_authz.grpc
+    url: https://opa_cluster:9191
+
+decision_logs:
+  console: true
+  reporting:
+    min_delay_seconds: 1
+    max_delay_seconds: 10
+
+bundles:
+  edge_policy:
+    service: bundle_service
+    resource: /bundles/edge-policy.tar.gz
+    polling:
+      min_delay_seconds: 10
+      max_delay_seconds: 30
+    persist: true
+
+plugins:
+  envoy_ext_authz_grpc:
+    addr: :9191
+    path: edge_policy/authz/allow
+    dry-run: false
+    enable-reflection: false
+    query: data.edge_policy.authz.allow
+
+bundle_service:
+  url: "${BUNDLE_SERVICE_URL}"
+  credentials:
+    bearer:
+      token: "${BUNDLE_SERVICE_TOKEN}"
+
+# Status reporting
+status:
+  console: true
+
+# Console decision logging
+console_decision_logs: true

@@ -1,0 +1,22 @@
+# Default configuration bundled with the Edge Policy Hub desktop application.
+# Override these values by editing the files deployed alongside the packaged
+# application or by supplying tenant-specific configuration at runtime.
+
+[logging]
+level = "info"
+
+[enforcer]
+host = "127.0.0.1"
+port = 8181
+
+[proxy_http]
+port = 8080
+upstream_url = "http://localhost:8000"
+
+[quota_tracker]
+port = 8183
+persistence_interval_secs = 60
+
+[audit_store]
+port = 8182
+enable_deferred_upload = true

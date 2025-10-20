@@ -1,0 +1,71 @@
+{
+  "productName": "Edge Policy Hub",
+  "version": "0.1.0",
+  "identifier": "com.edgepolicyhub.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "bundle": {
+    "active": false,
+    "targets": [],
+    "category": "Utility",
+    "shortDescription": "Multi-tenant edge policy enforcement gateway",
+    "longDescription": "Edge Policy Hub enforces data residency, privacy, and cost guardrails at the edge with ABAC policies and OPA/Rego enforcement.",
+    "copyright": "Copyright © 2025 Edge Policy Hub Contributors",
+    "licenseFile": "../../../LICENSE",
+    "externalBin": [],
+    "resources": [],
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libssl3"]
+      },
+      "rpm": {
+        "depends": ["webkit2gtk4.1", "openssl"]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "languages": ["English"],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.15",
+      "entitlements": "entitlements.plist"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Edge Policy Hub",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": ["https://github.com/acailic/edge-policy-hub/releases/latest/download/latest.json"],
+      "dialog": true,
+      "pubkey": "<PUBLIC_KEY_PLACEHOLDER>"
+    }
+  }
+}

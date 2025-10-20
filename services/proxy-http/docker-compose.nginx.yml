@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: edge-policy-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./logs:/var/log/nginx
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      - UPSTREAM_HOST=${UPSTREAM_HOST:-backend}
+      - UPSTREAM_PORT=${UPSTREAM_PORT:-443}
+    depends_on:
+      - opa
+    networks:
+      - edge-policy-net
+
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: edge-policy-opa-nginx
+    volumes:
+      - ./policies:/policies:ro
+      - ./bundles:/bundles
+    ports:
+      - "8181:8181"  # HTTP API
+    environment:
+      - BUNDLE_SERVICE_URL=${BUNDLE_SERVICE_URL:-http://audit-store:8080}
+      - BUNDLE_SERVICE_TOKEN=${BUNDLE_SERVICE_TOKEN:-}
+    command:
+      - "run"
+      - "--server"
+      - "--addr=:8181"
+      - "--log-level=info"
+      - "--log-format=json"
+      - "/policies"
+    networks:
+      - edge-policy-net
+
+  # Example backend service
+  backend:
+    image: nginx:alpine
+    container_name: edge-policy-backend-nginx
+    ports:
+      - "8090:80"
+    networks:
+      - edge-policy-net
+
+networks:
+  edge-policy-net:
+    driver: bridge

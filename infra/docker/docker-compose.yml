@@ -1,0 +1,168 @@
+version: "3.8"
+
+networks:
+  edge-policy-net:
+    driver: bridge
+
+volumes:
+  audit-data:
+  quota-data:
+  policy-bundles:
+
+secrets:
+  hmac-secret:
+    file: ./hmac-secret.txt
+
+services:
+  enforcer:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.enforcer
+    image: ghcr.io/acailic/edge-policy-enforcer:latest
+    container_name: edge-policy-enforcer
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    ports:
+      - "8181:8181"
+    volumes:
+      - policy-bundles:/var/lib/edge-policy-hub/config/tenants.d
+    environment:
+      ENFORCER_HOST: "0.0.0.0"
+      ENFORCER_PORT: "8181"
+      LOG_LEVEL: "info"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  audit-store:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.audit-store
+    image: ghcr.io/acailic/edge-policy-audit-store:latest
+    container_name: edge-policy-audit-store
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    volumes:
+      - audit-data:/var/lib/edge-policy-hub/data/audit
+    secrets:
+      - hmac-secret
+    environment:
+      AUDIT_HOST: "0.0.0.0"
+      AUDIT_PORT: "8182"
+      AUDIT_HMAC_SECRET_FILE: "/run/secrets/hmac-secret"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8182/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  quota-tracker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.quota-tracker
+    image: ghcr.io/acailic/edge-policy-quota-tracker:latest
+    container_name: edge-policy-quota-tracker
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    volumes:
+      - quota-data:/var/lib/edge-policy-hub/data/quota
+    environment:
+      QUOTA_HOST: "0.0.0.0"
+      QUOTA_PORT: "8183"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8183/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  proxy-http:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.proxy-http
+    image: ghcr.io/acailic/edge-policy-proxy-http:latest
+    container_name: edge-policy-proxy-http
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    ports:
+      - "8080:8080"
+    depends_on:
+      - enforcer
+      - quota-tracker
+      - audit-store
+    environment:
+      PROXY_HOST: "0.0.0.0"
+      PROXY_PORT: "8080"
+      UPSTREAM_URL: "${UPSTREAM_URL:-http://backend:8000}"
+      ENFORCER_URL: "http://enforcer:8181"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  bridge-mqtt:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.bridge-mqtt
+    image: ghcr.io/acailic/edge-policy-bridge-mqtt:latest
+    container_name: edge-policy-bridge-mqtt
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    ports:
+      - "1883:1883"
+      - "8883:8883"
+    depends_on:
+      - enforcer
+      - quota-tracker
+      - audit-store
+    environment:
+      MQTT_HOST: "0.0.0.0"
+      MQTT_PORT: "1883"
+      ENFORCER_URL: "http://enforcer:8181"
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "1883"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

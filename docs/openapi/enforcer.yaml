@@ -1,0 +1,205 @@
+openapi: 3.0.3
+info:
+  title: Edge Policy Enforcer API
+  version: "1.0.0"
+  description: >
+    OPA-compatible policy evaluation service with multi-tenant isolation,
+    hot-reloadable bundles, and real-time decision streaming.
+servers:
+  - url: http://localhost:8181
+    description: Local enforcer service
+paths:
+  /v1/data/tenants/{tenant_id}/allow:
+    post:
+      summary: Evaluate policy decision
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyQueryRequest'
+      responses:
+        '200':
+          description: Decision computed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyQueryResponse'
+        '403':
+          description: Policy denied request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyQueryResponse'
+        '404':
+          description: Tenant not loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Evaluation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - mTLS: []
+  /v1/tenants/{tenant_id}/reload:
+    post:
+      summary: Hot-reload tenant bundle
+      parameters:
+        - name: tenant_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Bundle reloaded
+        '404':
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /health:
+    get:
+      summary: Health probe
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  service:
+                    type: string
+  /v1/stream/decisions:
+    get:
+      summary: Decision WebSocket stream
+      description: Upgrade connection to WebSocket to receive real-time decisions.
+      parameters:
+        - name: tenant_id
+          in: query
+          schema:
+            type: string
+      responses:
+        '101':
+          description: Switching protocols
+components:
+  securitySchemes:
+    mTLS:
+      type: mutualTLS
+  schemas:
+    PolicyQueryRequest:
+      type: object
+      required: [input]
+      properties:
+        input:
+          $ref: '#/components/schemas/PolicyInput'
+    PolicyQueryResponse:
+      type: object
+      properties:
+        result:
+          $ref: '#/components/schemas/PolicyDecision'
+        metrics:
+          $ref: '#/components/schemas/EvaluationMetrics'
+    PolicyInput:
+      type: object
+      properties:
+        subject:
+          $ref: '#/components/schemas/SubjectAttributes'
+        action:
+          type: string
+        resource:
+          $ref: '#/components/schemas/ResourceAttributes'
+        environment:
+          $ref: '#/components/schemas/EnvironmentAttributes'
+    SubjectAttributes:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        user_id:
+          type: string
+        device_id:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        clearance_level:
+          type: integer
+        device_location:
+          type: string
+    ResourceAttributes:
+      type: object
+      properties:
+        type:
+          type: string
+        id:
+          type: string
+        owner_tenant:
+          type: string
+        owner_user:
+          type: string
+        region:
+          type: string
+        classification:
+          type: string
+    EnvironmentAttributes:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        country:
+          type: string
+        risk_score:
+          type: number
+        bandwidth_used:
+          type: number
+        message_count:
+          type: integer
+    PolicyDecision:
+      type: object
+      required: [allow]
+      properties:
+        allow:
+          type: boolean
+        redact:
+          type: array
+          items:
+            type: string
+        reason:
+          type: string
+    EvaluationMetrics:
+      type: object
+      properties:
+        evaluation_time_ns:
+          type: integer
+        engine:
+          type: string
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true

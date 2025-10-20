@@ -1,0 +1,79 @@
+version: "3.8"
+
+services:
+  enforcer:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.enforcer
+      target: builder
+    command: ["cargo", "watch", "-x", "run --package edge-policy-enforcer"]
+    volumes:
+      - ../../:/workspace:cached
+      - policy-bundles:/workspace/config/tenants.d
+    working_dir: /workspace
+    environment:
+      RUST_BACKTRACE: "1"
+      LOG_LEVEL: "debug"
+
+  proxy-http:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.proxy-http
+      target: builder
+    command: ["cargo", "watch", "-x", "run --package edge-policy-proxy-http"]
+    volumes:
+      - ../../:/workspace:cached
+    working_dir: /workspace
+    environment:
+      RUST_BACKTRACE: "1"
+      LOG_LEVEL: "debug"
+      ENFORCER_URL: "http://enforcer:8181"
+
+  bridge-mqtt:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.bridge-mqtt
+      target: builder
+    command: ["cargo", "watch", "-x", "run --package edge-policy-bridge-mqtt"]
+    volumes:
+      - ../../:/workspace:cached
+    working_dir: /workspace
+    environment:
+      RUST_BACKTRACE: "1"
+      LOG_LEVEL: "debug"
+      ENFORCER_URL: "http://enforcer:8181"
+
+  audit-store:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.audit-store
+      target: builder
+    command: ["cargo", "watch", "-x", "run --package edge-policy-audit-store"]
+    volumes:
+      - ../../:/workspace:cached
+    working_dir: /workspace
+    environment:
+      RUST_BACKTRACE: "1"
+      LOG_LEVEL: "debug"
+
+  quota-tracker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.quota-tracker
+      target: builder
+    command: ["cargo", "watch", "-x", "run --package edge-policy-quota-tracker"]
+    volumes:
+      - ../../:/workspace:cached
+    working_dir: /workspace
+    environment:
+      RUST_BACKTRACE: "1"
+      LOG_LEVEL: "debug"
+
+  mock-backend:
+    image: kennethreitz/httpbin
+    container_name: mock-backend
+    restart: unless-stopped
+    networks:
+      - edge-policy-net
+    ports:
+      - "8000:80"

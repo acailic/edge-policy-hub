@@ -1,0 +1,34 @@
+{
+  "_comment": "APAC logistics tenant supporting high-volume GPS telemetry across multiple countries",
+  "tenant_id": "tenant-apac-logistics",
+  "name": "APAC Logistics & Supply Chain",
+  "status": "active",
+  "config": {
+    "quotas": {
+      "_comment": "Fleet vehicles stream GPS and sensor data continuously",
+      "message_limit": 200000,
+      "bandwidth_limit_gb": 1000
+    },
+    "features": {
+      "_comment": "Mobile networks require mTLS to secure device connections",
+      "data_residency": ["APAC"],
+      "pii_redaction": false,
+      "enable_mtls": true
+    },
+    "network_config": {
+      "_comment": "Allow only APAC geographies, vehicles connect via mobile providers",
+      "allowed_countries": ["SG", "JP", "AU", "IN"],
+      "mobile_network_allowed": true
+    },
+    "compliance": {
+      "_comment": "Tight data sovereignty rules block cross-border transfers",
+      "data_sovereignty": true,
+      "cross_border_transfer_allowed": false
+    },
+    "iot_config": {
+      "_comment": "Fleet device enrollment policy",
+      "device_types": ["gps_tracker", "temperature_sensor", "rfid_reader"],
+      "max_devices": 10000
+    }
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "edge-policy-enforcer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+notify = "6"
+regorus = "0.5"
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { version = "1", features = ["v4", "serde"] }
+futures-util = { version = "0.3", features = ["sink"] }
+
+[dev-dependencies]
+tempfile = "3"
