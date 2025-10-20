@@ -190,3 +190,91 @@ fn matches_decision_filter(filter: &str, allow: bool) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::types::{EvaluationMetrics, PolicyDecision};
+    use chrono::Utc;
+    use serde_json::json;
+
+    fn decision_event(tenant: &str, allow: bool) -> DecisionEvent {
+        DecisionEvent {
+            event_id: format!("event-{tenant}-{allow}"),
+            tenant_id: tenant.to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            decision: PolicyDecision {
+                allow,
+                redact: None,
+                reason: None,
+            },
+            input: json!({}),
+            metrics: EvaluationMetrics {
+                eval_duration_micros: 0,
+                tenant_id: tenant.to_string(),
+            },
+        }
+    }
+
+    #[test]
+    fn allows_events_when_filters_match() {
+        let event = decision_event("tenant-a", true);
+        let filter = StreamFilter {
+            tenant_id: Some("tenant-a".into()),
+            decision: Some("allow".into()),
+        };
+
+        assert!(should_send_event(&event, &filter));
+    }
+
+    #[test]
+    fn rejects_events_for_mismatched_tenant() {
+        let event = decision_event("tenant-a", true);
+        let filter = StreamFilter {
+            tenant_id: Some("tenant-b".into()),
+            decision: None,
+        };
+
+        assert!(!should_send_event(&event, &filter));
+    }
+
+    #[test]
+    fn rejects_events_for_mismatched_decision() {
+        let event = decision_event("tenant-a", true);
+        let filter = StreamFilter {
+            tenant_id: None,
+            decision: Some("deny".into()),
+        };
+
+        assert!(!should_send_event(&event, &filter));
+    }
+
+    #[test]
+    fn accepts_decision_synonyms_case_insensitive() {
+        let allow_event = decision_event("tenant-a", true);
+        let deny_event = decision_event("tenant-a", false);
+
+        let allow_filter = StreamFilter {
+            tenant_id: None,
+            decision: Some("Approved".into()),
+        };
+        let deny_filter = StreamFilter {
+            tenant_id: None,
+            decision: Some("rejected".into()),
+        };
+
+        assert!(should_send_event(&allow_event, &allow_filter));
+        assert!(should_send_event(&deny_event, &deny_filter));
+    }
+
+    #[test]
+    fn invalid_decision_filter_drops_event() {
+        let event = decision_event("tenant-a", true);
+        let filter = StreamFilter {
+            tenant_id: None,
+            decision: Some("unknown".into()),
+        };
+
+        assert!(!should_send_event(&event, &filter));
+    }
+}

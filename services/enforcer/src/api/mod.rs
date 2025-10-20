@@ -26,6 +26,7 @@ pub use websocket::ws_decision_stream;
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
+/// Builds the HTTP router and wires the decision broadcast channel used by WebSocket clients.
 pub fn create_router(
     policy_manager: Arc<PolicyManager>,
     event_tx: Arc<broadcast::Sender<DecisionEvent>>,

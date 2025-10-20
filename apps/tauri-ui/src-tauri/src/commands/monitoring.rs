@@ -363,12 +363,31 @@ async fn map_api_error(response: reqwest::Response, service: &str) -> CommandErr
 }
 
 fn normalize_decision(decision: &str) -> String {
-    match decision.to_lowercase().as_str() {
-        "allow" => "allow".to_string(),
-        "deny" | "denied" => "deny".to_string(),
-        _ => decision.to_lowercase(),
+    let normalized = decision.to_ascii_lowercase();
+    match normalized.as_str() {
+        "allow"
+        | "allowed"
+        | "allows"
+        | "approve"
+        | "approved"
+        | "permit"
+        | "permitted"
+        | "grant"
+        | "granted" => "allow".to_string(),
+        "deny"
+        | "denied"
+        | "denies"
+        | "reject"
+        | "rejected"
+        | "block"
+        | "blocked"
+        | "forbid"
+        | "forbidden" => "deny".to_string(),
+        _ => normalized,
     }
-}fn get_enforcer_ws_url_impl() -> Result<String, CommandError> {
+}
+
+fn get_enforcer_ws_url_impl() -> Result<String, CommandError> {
     let config =
         ServiceConfig::from_env().map_err(|err| CommandError::ValidationError(err.to_string()))?;
     Ok(build_enforcer_ws_url(&config))
