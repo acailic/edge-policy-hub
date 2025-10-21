@@ -47,7 +47,7 @@ update_config() {
   fi
   log "Updating updater public key in ${CONFIG_PATH}."
   tmp="$(mktemp)"
-  jq --arg key "${PUBLIC_KEY}" '.updater.pubkey = $key' "${CONFIG_PATH}" > "${tmp}"
+  jq --arg key "${PUBLIC_KEY}" '.plugins.updater.pubkey = $key' "${CONFIG_PATH}" > "${tmp}"
   mv "${tmp}" "${CONFIG_PATH}"
 }
 
