@@ -83,6 +83,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./apps/tauri-ui/src-tauri -> target"
+      - name: Install WiX Toolset (Windows)
+        if: runner.os == 'Windows'
+        run: choco install wixtoolset --version=3.14.0
       - name: Install dependencies
         working-directory: apps/tauri-ui
         run: pnpm install
@@ -163,14 +166,42 @@ jobs:
           path: dist
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
-      - name: Generate and sign latest.json
+      - name: Write private key
         run: |
-          tauri signer generate -w ~/.tauri/edge-policy-hub.key
-          PUBLIC_KEY=$(grep -Eo '-----BEGIN PUBLIC KEY-----.*-----END PUBLIC KEY-----' ~/.tauri/edge-policy-hub.key.pub | tr -d '\n' | sed 's/-----BEGIN PUBLIC KEY-----//;s/-----END PUBLIC KEY-----//')
-          echo "PUBLIC_KEY=$PUBLIC_KEY" >> $GITHUB_ENV
-          tauri signer sign -k ~/.tauri/edge-policy-hub.key -b latest.json dist/
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
+          echo "${{ secrets.TAURI_PRIVATE_KEY }}" > ~/.tauri/edge-policy-hub.key
+      - name: Generate latest.json
+        run: |
+          # Synthesize latest.json from artifacts
+          VERSION="${{ github.ref_name }}"
+          BASE_URL="https://github.com/acailic/edge-policy-hub/releases/download/${VERSION}"
+          
+          cat > latest.json << EOF
+          {
+            "version": "${VERSION#v}",
+            "notes": "Release ${VERSION}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "linux-x86_64": {
+                "signature": "",
+                "url": "${BASE_URL}/edge-policy-hub_${VERSION#v}_amd64.deb"
+              },
+              "windows-x86_64": {
+                "signature": "",
+                "url": "${BASE_URL}/Edge_Policy_Hub_${VERSION#v}_x64_en-US.msi"
+              },
+              "darwin-x86_64": {
+                "signature": "",
+                "url": "${BASE_URL}/Edge_Policy_Hub_${VERSION#v}_x64.dmg"
+              },
+              "darwin-aarch64": {
+                "signature": "",
+                "url": "${BASE_URL}/Edge_Policy_Hub_${VERSION#v}_aarch64.dmg"
+              }
+            }
+          }
+          EOF
+      - name: Sign latest.json
+        run: tauri signer sign -k ~/.tauri/edge-policy-hub.key -b latest.json dist/
       - name: Upload latest.json
         uses: actions/upload-artifact@v4
         with:

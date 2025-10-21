@@ -96,7 +96,7 @@ pnpm tauri build
 
 - Linux: `src-tauri/target/release/bundle/deb/edge-policy-hub_<version>_amd64.deb`
 - Linux: `src-tauri/target/release/bundle/rpm/edge-policy-hub-<version>-1.x86_64.rpm`
-- Windows: `src-tauri/target/release/bundle/nsis/Edge Policy Hub_<version>_x64-setup.exe`
+- Windows: `src-tauri/target/release/bundle/msi/Edge Policy Hub_<version>_x64_en-US.msi`
 - macOS: `src-tauri/target/release/bundle/dmg/Edge Policy Hub_<version>_x64.dmg`
 
 ### Platform Notes
